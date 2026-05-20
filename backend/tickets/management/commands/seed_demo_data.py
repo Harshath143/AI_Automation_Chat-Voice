@@ -34,6 +34,34 @@ class Command(BaseCommand):
         Conversation.objects.all().delete()
         Customer.objects.all().delete()
 
+        # Create a dedicated Customer using the configured ADMIN_EMAIL for manual checking
+        from django.conf import settings
+        admin_test_email = getattr(settings, 'ADMIN_EMAIL', 'admin@yourdomain.com')
+        admin_customer = Customer.objects.create(
+            full_name="Test Admin Customer",
+            email=admin_test_email,
+            phone="+971-55-777-8888",
+            dob=timezone.now().date() - timedelta(days=10000)
+        )
+        self.stdout.write(self.style.SUCCESS(f"Dedicated test customer created: {admin_customer.full_name} ({admin_customer.email})"))
+
+        # Create a sample reschedule ticket specifically for this test customer
+        t_sample = Ticket.objects.create(
+            customer=admin_customer,
+            channel="chat",
+            intent="appointment_reschedule",
+            priority="medium",
+            department="Appointment Management Team",
+            status="open",
+            summary="Customer requested to reschedule their appointment from June 10th to June 15th due to urgent work commitments.",
+            conversation_id=uuid.uuid4(),
+            created_at=timezone.now() - timedelta(hours=2),
+            updated_at=timezone.now() - timedelta(hours=2)
+        )
+        t_sample.sla_deadline = t_sample.created_at + timedelta(hours=24)
+        t_sample.save()
+        self.stdout.write(self.style.SUCCESS(f"Sample ticket {t_sample.ticket_number} pre-populated for the test customer."))
+
         # 3. Define Seed constants
         first_names = ["Alexander", "Fatima", "John", "Sarah", "Michael", "Amna", "Robert", "Elena", "David", "Yuki", "Zahra", "Carlos", "Emma", "Tariq", "Li"]
         last_names = ["Smith", "Al-Mansoori", "Doe", "Connor", "Johnson", "Al-Hashimi", "Williams", "Petrova", "Brown", "Tanaka", "Haddad", "Garcia", "Miller", "Malik", "Wang"]

@@ -4,13 +4,18 @@ import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
 import TicketPage from './pages/TicketPage';
 import DocumentUploadPage from './pages/DocumentUploadPage';
+import LoginPage from './pages/LoginPage';
 import { 
   Sparkles, Bot, ShieldAlert, FileSearch, 
   Settings, LogOut, Terminal, Users 
 } from 'lucide-react';
 
 export default function App() {
-  const { activeTab, setActiveTab } = useStore();
+  const { activeTab, setActiveTab, role, setRole, userProfile, setUserProfile, resetSessionId } = useStore();
+
+  if (!userProfile) {
+    return <LoginPage />;
+  }
 
   const navigationItems = [
     { id: 'dashboard', label: 'Operational Insights', icon: Sparkles },
@@ -19,13 +24,23 @@ export default function App() {
     { id: 'documents', label: 'Document Verification', icon: FileSearch },
   ] as const;
 
+  const filteredNavigationItems = navigationItems.filter((item) => {
+    if (role === 'user') {
+      return item.id === 'chat' || item.id === 'documents';
+    }
+    return true;
+  });
+
   const renderActivePage = () => {
-    switch (activeTab) {
+    const allowedTabs = role === 'user' ? ['chat', 'documents'] : ['dashboard', 'chat', 'tickets', 'documents'];
+    const currentActiveTab = allowedTabs.includes(activeTab) ? activeTab : (role === 'user' ? 'chat' : 'dashboard');
+
+    switch (currentActiveTab) {
       case 'dashboard': return <DashboardPage />;
       case 'chat': return <ChatPage />;
       case 'tickets': return <TicketPage />;
       case 'documents': return <DocumentUploadPage />;
-      default: return <DashboardPage />;
+      default: return role === 'user' ? <ChatPage /> : <DashboardPage />;
     }
   };
 
@@ -49,7 +64,7 @@ export default function App() {
 
           {/* Navigation Links */}
           <nav className="p-4 space-y-1.5">
-            {navigationItems.map((item) => {
+            {filteredNavigationItems.map((item) => {
               const Icon = item.icon;
               return (
                 <button
@@ -71,14 +86,26 @@ export default function App() {
 
         {/* Footer profile info */}
         <div className="p-4 border-t border-gray-800/80 space-y-3">
-          <div className="flex items-center gap-3 bg-[#151c2c]/40 p-2.5 rounded-xl border border-gray-800/40">
-            <div className="w-9 h-9 bg-accent/20 rounded-full flex items-center justify-center text-accent font-bold text-xs uppercase">
-              ER
+          <div className="flex items-center justify-between bg-[#151c2c]/40 p-2.5 rounded-xl border border-gray-800/40">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 bg-accent/20 rounded-full flex items-center justify-center text-accent font-bold text-xs uppercase shrink-0">
+                {userProfile?.full_name.slice(0, 2) || 'US'}
+              </div>
+              <div className="min-w-0">
+                <span className="text-[11px] font-bold text-white block truncate">{userProfile?.full_name}</span>
+                <span className="text-[8px] text-gray-500 uppercase tracking-wider block capitalize">{role}</span>
+              </div>
             </div>
-            <div className="min-w-0">
-              <span className="text-xs font-bold text-white block truncate">Elena Rostova</span>
-              <span className="text-[9px] text-gray-500 uppercase tracking-wider block">Superintendent</span>
-            </div>
+            <button 
+              onClick={() => {
+                setUserProfile(null);
+                resetSessionId();
+              }}
+              className="text-gray-500 hover:text-red-400 transition ml-2 p-1"
+              title="Log Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
           <div className="flex justify-between text-[10px] text-gray-500 font-mono px-1">
             <span className="flex items-center gap-1">
@@ -103,9 +130,39 @@ export default function App() {
           </span>
           
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-[#0b0f19] border border-gray-800 px-3 py-1 rounded-lg">
-              <Users className="w-4 h-4 text-primary" />
-              <span className="text-[10px] text-gray-400 font-mono">Agent Node: <strong className="text-white">Active</strong></span>
+            {/* Perspective Selector Toggle buttons - ONLY visible and active if logged in as Admin */}
+            {role === 'admin' && (
+              <div className="flex items-center gap-1 bg-[#0b0f19] border border-gray-800/80 p-0.5 rounded-xl">
+                <button
+                  onClick={() => {
+                    setActiveTab('chat');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase transition-all duration-200 ${
+                    activeTab === 'chat' || activeTab === 'documents'
+                      ? 'bg-primary text-white shadow-md shadow-primary/20'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  Customer POV
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('dashboard');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-[9px] font-mono font-bold uppercase transition-all duration-200 ${
+                    activeTab === 'dashboard' || activeTab === 'tickets'
+                      ? 'bg-accent/80 text-white shadow-md shadow-accent/20'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  Platform Admin
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 bg-[#0b0f19] border border-gray-800 px-3 py-1.5 rounded-xl">
+              <Users className="w-4.5 h-4.5 text-primary" />
+              <span className="text-[10px] text-gray-400 font-mono">Role: <strong className="text-white uppercase">{role}</strong></span>
             </div>
           </div>
         </header>

@@ -52,37 +52,49 @@ class ChatbotService:
 
         # 4. Manage Stateful Slot Filling
         slots_state = conversation.slots_state or {}
+        active_intent = slots_state.get("active_intent")
         
-        # If the intent has changed or slot state is not initialized for the active intent
+        target_intent = None
         if intent in SLOT_SCHEMAS:
-            if slots_state.get("active_intent") != intent:
+            target_intent = intent
+            # Only reset slots if switching to a DIFFERENT intent
+            if active_intent != intent:
                 slots_state = {
                     "active_intent": intent,
                     "clarification_attempts": 0,
                     "slots": {slot: None for slot in SLOT_SCHEMAS[intent]}
                 }
-
+                active_intent = intent
+            # Same intent: keep existing slots, just extract more
+        elif active_intent in SLOT_SCHEMAS:
+            target_intent = active_intent
+            
+        if target_intent:
             # Update slots using LLM extraction
             slots_state = self._extract_slots(content, slots_state)
             conversation.slots_state = slots_state
             conversation.save()
+            # Retain active intent as the operational context intent
+            intent = target_intent
 
         # 5. Check ticket requirements or trigger rules
         ticket_created = False
         ticket_id = None
         ticket_number = None
 
-        # Auto-creation rule: All slots filled, or intent is high confidence and slots filled
+        # Auto-creation rule: All slots filled, or clarification fallback, or direct intent
         should_create_ticket = False
-        if intent in SLOT_SCHEMAS:
+        check_intent = target_intent or intent
+        if check_intent in SLOT_SCHEMAS:
             active_slots = slots_state.get("slots", {})
             filled_slots = [k for k, v in active_slots.items() if v is not None]
-            required_slots = SLOT_SCHEMAS[intent]
+            required_slots = SLOT_SCHEMAS[check_intent]
+            intent = check_intent
             
-            # If all slots filled
+            # Fire if all required slots are filled
             if len(filled_slots) >= len(required_slots):
                 should_create_ticket = True
-            # Or if clarification attempts >= 2 (creates ticket as "Unknown" general support)
+            # Fire if customer has given 2+ attempts but slots still missing
             elif slots_state.get("clarification_attempts", 0) >= 2:
                 should_create_ticket = True
         elif intent in ["complaint_escalation", "human_handoff_request"] and confidence >= 0.70:
@@ -175,18 +187,33 @@ Ticket Number if exists: {ticket_number}
         """
         active_slots = slots_state.get("slots", {})
         
-        prompt = f"""
-        Given this customer message: "{message}"
-        And these current slot variables: {json.dumps(active_slots)}
-        
-        Extract any missing slot fields from the message text if present.
-        Return a valid JSON object ONLY containing the slot keys with their extracted values. If a field was not found in the text, retain its existing value from the slot variables. Do not overwrite existing values unless the user explicitly updates them.
-        Do not explain anything. Just output JSON.
-        """
+        system_instruction = """You are a highly precise slot-extraction assistant for a Visa Support Centre. Your job is to analyze a customer message and extract slot field values from it, returning a clean JSON object.
+
+Rules for Extraction:
+1. "dob" (Date of Birth): Convert ANY date format (e.g. "07/12/2000", "July 7 2000", "12 July 2000", "12/07/2000") to standard ISO 'YYYY-MM-DD' format.
+2. "full_name" (Full Name): Extract only a personal name. Do NOT put dates, numbers, or codes into this slot.
+3. "application_number": Extract alphanumeric visa reference codes (e.g. "DXB-2026-99214A", "REF-202605-IMM").
+4. "current_date" (Current Appointment Date): Extract the existing/current appointment date from phrases like "current date", "my appointment is on", "from", "existing date". Convert to ISO 'YYYY-MM-DD' if possible, or keep as provided.
+5. "preferred_date" (Preferred New Date): Extract the desired new date from phrases like "preferred date", "new date", "reschedule to", "instead of", "change to". Convert to ISO 'YYYY-MM-DD' if possible, or keep as provided.
+6. "reason" (Reason): Extract the reason/cause from phrases like "reason is", "because", "due to", "as", or any explanatory phrase.
+7. "issue_description": Extract a full description of the customer's complaint or issue.
+8. "urgency_level": Extract urgency indicators like "high", "critical", "extremely urgent", "standard", etc.
+9. DO NOT overwrite an already-filled slot unless the customer explicitly changes it.
+10. If a value is not found in the message, keep the existing value exactly as-is (do not set to null).
+
+Respond with a valid JSON object ONLY. No explanations, no markdown. Just valid JSON."""
+
+        prompt = f"""Existing Slot Variables: {json.dumps(active_slots)}
+Customer Message: "{message}"
+
+Extract any missing or updated slot values and return the complete JSON with all keys:"""
         
         try:
             response = self.groq_client.chat_completion(
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": prompt}
+                ],
                 model="llama-3.1-8b-instant",
                 temperature=0.0,
                 response_format={"type": "json_object"}
@@ -205,15 +232,19 @@ Ticket Number if exists: {ticket_number}
         """
         Creates an automatic ticket under Customer relations based on active slot fills.
         """
-        slots = slots_state.get("slots", {})
-        customer_name = slots.get("full_name") or "Anonymous Customer"
-        customer_email = slots.get("email") or f"customer_{str(conversation.id)[:8]}@support.com"
-        
-        # 1. Create or fetch Customer
-        customer, created = Customer.objects.get_or_create(
-            email=customer_email,
-            defaults={"full_name": customer_name}
-        )
+        if conversation.customer:
+            customer = conversation.customer
+            customer_name = customer.full_name
+        else:
+            slots = slots_state.get("slots", {})
+            customer_name = slots.get("full_name") or "Anonymous Customer"
+            customer_email = slots.get("email") or f"customer_{str(conversation.id)[:8]}@support.com"
+            
+            # Create or fetch Customer
+            customer, created = Customer.objects.get_or_create(
+                email=customer_email,
+                defaults={"full_name": customer_name}
+            )
 
         # 2. Determine department routing based on intent
         dept_mapping = {

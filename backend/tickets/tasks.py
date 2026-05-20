@@ -138,6 +138,20 @@ def send_acknowledgment_email(ticket_id: str):
         ticket = Ticket.objects.get(id=ticket_id)
         customer = ticket.customer
         
+        # Retrieve slots details from conversation if available
+        slots_details = ""
+        if ticket.conversation_id:
+            try:
+                from chatbot.models import Conversation
+                conversation = Conversation.objects.get(id=ticket.conversation_id)
+                slots = conversation.slots_state.get("slots", {})
+                if slots:
+                    for k, v in slots.items():
+                        if v:
+                            slots_details += f"- {k.replace('_', ' ').title()}: {v}\n"
+            except Exception as e:
+                logger.error(f"Error reading conversation slots for email: {e}")
+        
         subject = f"Your support request has been received — Ticket #{ticket.ticket_number}"
         
         email_template = """
@@ -149,6 +163,17 @@ Ticket Reference: {{ ticket_number }}
 Priority Level: {{ priority }}
 Assigned Department: {{ department }}
 Expected Response Time: Within {{ sla_hours }} hours
+
+Customer Information:
+- Full Name: {{ customer_name }}
+- Email: {{ customer_email }}
+- Phone: {{ customer_phone }}
+{% if customer_dob %}- Date of Birth: {{ customer_dob }}{% endif %}
+
+{% if slots_details %}
+Submitted Details:
+{{ slots_details }}
+{% endif %}
 
 Summary of Request:
 {{ summary }}
@@ -177,24 +202,33 @@ Visa Support Operations Centre
         t = Template(email_template)
         c = Context({
             "customer_name": customer.full_name,
+            "customer_email": customer.email,
+            "customer_phone": customer.phone or "N/A",
+            "customer_dob": customer.dob.strftime('%Y-%m-%d') if customer.dob else None,
             "intent": ticket.intent.replace("_", " ").title(),
             "ticket_number": ticket.ticket_number,
             "priority": ticket.priority.upper(),
             "department": ticket.department,
             "sla_hours": sla_hours,
-            "summary": ticket.summary or "In process of categorization."
+            "summary": ticket.summary or "In process of categorization.",
+            "slots_details": slots_details.strip()
         })
         
         body = t.render(c)
         
+        recipient_list = [customer.email]
+        admin_email = getattr(settings, 'ADMIN_EMAIL', 'admin@yourdomain.com')
+        if admin_email and admin_email not in recipient_list:
+            recipient_list.append(admin_email)
+
         send_mail(
             subject=subject,
             message=body,
             from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@yourdomain.com'),
-            recipient_list=[customer.email],
+            recipient_list=recipient_list,
             fail_silently=False
         )
-        logger.info(f"Email acknowledgment successfully sent to {customer.email} for Ticket #{ticket.ticket_number}")
+        logger.info(f"Email acknowledgment successfully sent to {recipient_list} for Ticket #{ticket.ticket_number}")
         
     except Ticket.DoesNotExist:
         logger.error(f"Ticket {ticket_id} not found during email job.")

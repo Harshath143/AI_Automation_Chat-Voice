@@ -59,10 +59,15 @@ interface AppState {
   escalations: EscalationItem[];
   loading: boolean;
   error: string | null;
+  role: 'user' | 'admin';
+  userProfile: { full_name: string; email: string; phone: string; } | null;
   
   // Setters
   setActiveTab: (tab: 'dashboard' | 'chat' | 'tickets' | 'documents') => void;
   resetSessionId: () => void;
+  setRole: (role: 'user' | 'admin') => void;
+  refreshSessionTimer: () => void;
+  setUserProfile: (profile: { full_name: string; email: string; phone: string; } | null) => void;
   
   // API actions
   fetchTickets: (search?: string) => Promise<void>;
@@ -89,14 +94,24 @@ const isValidUUID = (id: string | null): boolean => {
 };
 
 export const useStore = create<AppState>((set, get) => ({
-  activeTab: 'dashboard',
+  activeTab: (localStorage.getItem('role') || 'user') === 'user' ? 'chat' : 'dashboard',
+  role: (localStorage.getItem('role') || 'user') as 'user' | 'admin',
   sessionId: (() => {
     const cachedId = localStorage.getItem('sessionId');
-    if (isValidUUID(cachedId)) {
-      return cachedId as string;
+    const cachedTimestamp = localStorage.getItem('sessionTimestamp');
+    const now = Date.now();
+    
+    if (isValidUUID(cachedId) && cachedTimestamp) {
+      const timeDiff = now - parseInt(cachedTimestamp, 10);
+      if (timeDiff < 3600000) { // 1 hour
+        localStorage.setItem('sessionTimestamp', now.toString());
+        return cachedId as string;
+      }
     }
+    
     const newId = generateUUID();
     localStorage.setItem('sessionId', newId);
+    localStorage.setItem('sessionTimestamp', now.toString());
     return newId;
   })(),
   tickets: [],
@@ -112,12 +127,40 @@ export const useStore = create<AppState>((set, get) => ({
   loading: false,
   error: null,
 
+  userProfile: (() => {
+    const cached = localStorage.getItem('userProfile');
+    try {
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  })(),
+
   setActiveTab: (tab) => set({ activeTab: tab }),
   
   resetSessionId: () => {
     const newId = generateUUID();
     localStorage.setItem('sessionId', newId);
+    localStorage.setItem('sessionTimestamp', Date.now().toString());
     set({ sessionId: newId });
+  },
+
+  setUserProfile: (profile) => {
+    if (profile) {
+      localStorage.setItem('userProfile', JSON.stringify(profile));
+    } else {
+      localStorage.removeItem('userProfile');
+    }
+    set({ userProfile: profile });
+  },
+
+  setRole: (role) => {
+    localStorage.setItem('role', role);
+    set({ role });
+  },
+
+  refreshSessionTimer: () => {
+    localStorage.setItem('sessionTimestamp', Date.now().toString());
   },
 
   fetchTickets: async (search) => {

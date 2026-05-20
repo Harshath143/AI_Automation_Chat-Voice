@@ -24,20 +24,20 @@ class IntentService:
         """
         text = message_text.lower().strip()
 
-        # 1. Direct High-Confidence Heuristics
-        if any(w in text for w in ["human", "agent", "person", "representative", "speak to someone"]):
-            return "human_handoff_request", 1.0
-        
+        # 1. Direct High-Confidence Heuristics (order matters — most specific first)
+        if any(w in text for w in ["reschedule", "change appointment", "change my appointment", "booking date", "new date", "rebook", "move my appointment"]):
+            return "appointment_reschedule", 0.95
+
         if any(w in text for w in ["escalate", "manager", "director", "complain", "complaint", "awful", "terrible"]):
             return "complaint_escalation", 0.95
 
-        if any(w in text for w in ["reschedule", "change appointment", "booking date", "new date"]):
-            return "appointment_reschedule", 0.95
+        if any(w in text for w in ["speak to a human", "talk to an agent", "speak to an agent", "human agent", "real person", "speak to someone", "talk to someone", "connect me to"]):
+            return "human_handoff_request", 1.0
 
         if any(w in text for w in ["upload", "submit passport", "send file", "attach", "attachment", "pdf"]):
             return "document_upload", 0.90
 
-        if any(w in text for w in ["status", "where is my", "tracking", "track visa", "application number"]):
+        if any(w in text for w in ["status", "where is my", "tracking", "track visa", "application number", "check my visa", "visa status"]):
             return "visa_status_enquiry", 0.95
 
         if any(w in text for w in ["missing", "incomplete", "need to provide", "additional document"]):

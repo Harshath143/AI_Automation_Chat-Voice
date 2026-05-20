@@ -17,7 +17,7 @@ interface ChatMessage {
 }
 
 export default function ChatPage() {
-  const { sessionId, resetSessionId, setActiveTab } = useStore();
+  const { sessionId, resetSessionId, setActiveTab, refreshSessionTimer, userProfile, role } = useStore();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [status, setStatus] = useState<'idle' | 'typing' | 'streaming'>('idle');
@@ -54,22 +54,47 @@ export default function ChatPage() {
 
     ws.onopen = () => {
       console.log("WebSocket Connection established.");
-      // Send greeting trigger message if history is empty
-      if (messages.length === 0) {
-        setMessages([
-          {
-            id: 'init',
-            sender: 'bot',
-            text: "Hello! I am Sofia, your professional AI assistant for the Visa Support Centre. How can I assist you today with visa status tracking, document uploads, or appointment scheduling?"
-          }
-        ]);
+      
+      // If customer is logged in, sync their CRM profile immediately
+      if (userProfile) {
+        ws.send(JSON.stringify({
+          type: 'login',
+          full_name: userProfile.full_name,
+          email: userProfile.email,
+          phone: userProfile.phone
+        }));
       }
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === 'status') {
+      if (data.type === 'history') {
+        const formatted = data.messages.map((m: any) => ({
+          id: m.id || generateUUID(),
+          sender: m.sender,
+          text: m.text
+        }));
+
+        if (formatted.length === 0) {
+          setMessages([
+            {
+              id: 'init',
+              sender: 'bot',
+              text: "Hello! I am Sofia, your professional AI assistant for the Visa Support Centre. How can I assist you today with visa status tracking, document uploads, or appointment scheduling?"
+            }
+          ]);
+        } else {
+          setMessages(formatted);
+        }
+
+        if (data.slots_filled) setActiveSlots(data.slots_filled);
+        if (data.intent) setActiveIntent(data.intent);
+        if (data.ticket_data) {
+          setCurrentTicket({ number: data.ticket_data.ticket_number, id: data.ticket_data.ticket_id });
+        }
+      }
+      else if (data.type === 'status') {
         setStatus(data.status);
       } 
       else if (data.type === 'token') {
@@ -140,6 +165,7 @@ export default function ChatPage() {
     e.preventDefault();
     if (!inputText.trim()) return;
 
+    refreshSessionTimer();
     const userMsgText = inputText;
     setInputText('');
 
