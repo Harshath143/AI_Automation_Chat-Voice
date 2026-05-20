@@ -171,3 +171,13 @@ MINIO_ACCESS_KEY = os.environ.get('MINIO_ACCESS_KEY', 'minioadmin')
 MINIO_SECRET_KEY = os.environ.get('MINIO_SECRET_KEY', 'minioadmin')
 MINIO_BUCKET = os.environ.get('MINIO_BUCKET', 'documents')
 MINIO_USE_SSL = os.environ.get('USE_SSL', 'False').lower() == 'true'
+
+# ElevenLabs Settings
+ELEVENLABS_API_KEY = os.environ.get('ELEVENLABS_API_KEY', '')
+ELEVENLABS_VOICE_ID = os.environ.get('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM')
+ELEVENLABS_MODEL_ID = os.environ.get('ELEVENLABS_MODEL_ID', 'eleven_multilingual_v2')
+
+# Twilio Settings
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
+

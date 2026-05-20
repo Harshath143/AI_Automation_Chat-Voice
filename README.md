@@ -19,6 +19,11 @@ graph TD
     I -- "SMTP" --> J[Console / SMTP Mailer]
     H -- "Scheduler" --> K[SLA Beat Auditor]
     K -- "Escalation Alert" --> B
+    
+    %% Voice & Telephony Channels
+    A -- "STT Capture" --> L[Browser Speech Recognition]
+    B -- "Audio Synthesis Proxy" --> M[ElevenLabs / Google Translate TTS]
+    N[Twilio Phone Gateway] -- "XML TwiML Webhooks" --> B
 ```
 
 ---
@@ -55,6 +60,13 @@ A visually stunning operational terminal:
 - **Vector Graphics**: Integrates Recharts Line charts (trends), Bar charts (categories), and Donut charts (priority distributions) inside animated cards.
 - **Agent Workspace**: Inspect ticket details, assign operational teams, update statuses, or perform manual manager escalations.
 
+### 5. Multi-Channel AI Voice Operator ("Voice Call Sofia")
+A high-performance, real-time voice integration offering:
+- **In-App VoIP Softphone**: A beautiful glassmorphic calling panel featuring dynamic circular place/hang-up controls and smooth, pulsing gradient SVG waveform audio visualizers mapping real-time conversation states (`sofia_speaking`, `listening`, `dialing`, `connected`).
+- **Telemetry HUD & Slot Tracker Checklist**: Evaluates parsed intents and fields (Name, Application Ref Number, Birth Date) from voice speech, automatically flashing green checkmarks as parameters are successfully completed, triggering ticket generation, and displaying auto-scrolling glassmorphic caption overlays.
+- **PSTN Telephony Integration (Twilio Gateway)**: Production-grade webhook support (`/api/voice/twilio/incoming` and `/api/voice/twilio/callback`) to route incoming cell/landline calls. Automatically manages interactive `<Gather>` voice sessions and terminates calls securely upon ticket resolution.
+- **Dual-Mode Text-to-Speech (TTS) Proxy**: Proxies synthesis requests via ElevenLabs with configurable voice IDs and modern multilingual engines (`eleven_multilingual_v2`). Falls back automatically to a free, public Google Translate TTS audio stream to ensure full platform capability out-of-the-box when premium keys are omitted.
+
 ---
 
 ## 🛠️ Folder & Code Structure
@@ -71,7 +83,7 @@ Voice_And_ChatBot/
 │   └── manage.py                # Django execution entrypoint
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/               # DashboardPage, ChatPage, TicketPage, DocumentUploadPage
+│   │   ├── pages/               # DashboardPage, ChatPage, TicketPage, DocumentUploadPage, VoicePage
 │   │   ├── store/               # Zustand useStore.ts central global state store
 │   │   ├── App.tsx              # Sidebar navigation wrapper
 │   │   ├── index.css            # Stylesheets, custom scrollbars, and animations
@@ -97,9 +109,19 @@ DEBUG=True
 SECRET_KEY=django-insecure-prod-key-generation-override
 DATABASE_URL=sqlite:///db.sqlite3     # Swaps automatically to postgres in Docker
 REDIS_URL=redis://localhost:6379/0
+
+# ElevenLabs Neural Voice Settings
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+ELEVENLABS_VOICE_ID=BFd5oBc2DDna33pSi4Gf          # Custom ElevenLabs Voice ID (e.g. Rachel, Alicia)
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2        # High-performance multilingual speech model
+
+# Twilio Telephony Settings (Optional)
+TWILIO_ACCOUNT_SID=your_twilio_account_sid_here
+TWILIO_AUTH_TOKEN=your_twilio_auth_token_here
 ```
 > [!NOTE]
-> If `GROQ_API_KEY` is omitted or empty, the platform automatically engages its **Mock Engine Fallbacks**. These simulate highly realistic Groq text responses and visual OCR extractions (including expired Emirates ID warnings), allowing offline development to work flawlessly.
+> - If `GROQ_API_KEY` is omitted or empty, the platform automatically engages its **Mock Engine Fallbacks**. These simulate highly realistic Groq text responses and visual OCR extractions (including expired Emirates ID warnings), allowing offline development to work flawlessly.
+> - If `ELEVENLABS_API_KEY` is omitted or empty, the platform automatically engages its **Google Translate TTS fallback stream**. This delivers completely free, zero-configuration audio feedback out-of-the-box.
 
 ---
 
@@ -143,6 +165,22 @@ REDIS_URL=redis://localhost:6379/0
    npm run dev
    ```
    *Frontend interface will be available at: http://localhost:3000*
+
+#### C. Testing the AI Voice Operator ("Voice Call Sofia")
+To test and verify the local softphone voice platform:
+1. Navigate to the **Sofia Voice Call** tab on the left sidebar navigation.
+2. Click **Start Sofia Voice Call** to open a secure WebSocket stream connection and start the interactive waveform visuals.
+3. **Microphone Permissions**:
+   > [!IMPORTANT]
+   > Modern web browsers strictly sandbox microphone audio capture. The **Web Speech API** requires that the application is loaded over `localhost` or an encrypted secure layer (`https://`). Ensure you access the frontend at `http://localhost:3000` (not via custom local IP aliases) to allow automated microphone access.
+4. **Try a Conversation**:
+   Use the following sample sequence to verify slot-filling and telemetry updates in real-time:
+   * **Turn 1 (Initiation)**: Say *"Hello, I want to track my visa application."*
+     * *Sofia responds: "I can help you check your visa status. Can I please have your full name, application reference number, and date of birth?"*
+   * **Turn 2 (Partial slots)**: Say *"My name is Harshath and my reference number is DXB-2026-99214A."*
+     * *HUD observation: Notice the checkmarks for "Full Name" and "Application Number" instantly turn green in the Telemetry HUD. Sofia will prompt you specifically for the missing date of birth.*
+   * **Turn 3 (Final slot)**: Say *"My date of birth is December 7th, 1995."*
+     * *Sofia recognizes slot fulfillment, flashes the final checkmark, automatically compiles a critical ticket, updates the database, and reads back the ticket confirmation number before ending the turn.*
 
 ---
 

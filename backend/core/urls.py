@@ -6,6 +6,7 @@ from ninja import NinjaAPI
 from tickets.apis import router as tickets_router
 from documents.apis import router as documents_router
 from analytics.apis import router as analytics_router
+from chatbot.apis import router as voice_router
 
 # Initialize central Django Ninja API
 api = NinjaAPI(
@@ -18,6 +19,8 @@ api = NinjaAPI(
 api.add_router("/tickets", tickets_router)
 api.add_router("/documents", documents_router)
 api.add_router("/analytics", analytics_router)
+api.add_router("/voice", voice_router)
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),

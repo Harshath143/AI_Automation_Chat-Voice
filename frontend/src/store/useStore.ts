@@ -52,7 +52,7 @@ export interface EscalationItem {
 }
 
 interface AppState {
-  activeTab: 'dashboard' | 'chat' | 'tickets' | 'documents';
+  activeTab: 'dashboard' | 'chat' | 'tickets' | 'documents' | 'voice';
   sessionId: string;
   tickets: Ticket[];
   kpiSummary: KPISummary;
@@ -63,7 +63,7 @@ interface AppState {
   userProfile: { full_name: string; email: string; phone: string; } | null;
   
   // Setters
-  setActiveTab: (tab: 'dashboard' | 'chat' | 'tickets' | 'documents') => void;
+  setActiveTab: (tab: 'dashboard' | 'chat' | 'tickets' | 'documents' | 'voice') => void;
   resetSessionId: () => void;
   setRole: (role: 'user' | 'admin') => void;
   refreshSessionTimer: () => void;

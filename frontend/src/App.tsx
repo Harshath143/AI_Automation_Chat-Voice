@@ -4,10 +4,11 @@ import DashboardPage from './pages/DashboardPage';
 import ChatPage from './pages/ChatPage';
 import TicketPage from './pages/TicketPage';
 import DocumentUploadPage from './pages/DocumentUploadPage';
+import VoicePage from './pages/VoicePage';
 import LoginPage from './pages/LoginPage';
 import { 
   Sparkles, Bot, ShieldAlert, FileSearch, 
-  Settings, LogOut, Terminal, Users 
+  Settings, LogOut, Terminal, Users, Phone 
 } from 'lucide-react';
 
 export default function App() {
@@ -20,19 +21,22 @@ export default function App() {
   const navigationItems = [
     { id: 'dashboard', label: 'Operational Insights', icon: Sparkles },
     { id: 'chat', label: 'AI Chatbot Console', icon: Bot },
+    { id: 'voice', label: 'AI Voice Operator', icon: Phone },
     { id: 'tickets', label: 'Agent Ticketing Desk', icon: ShieldAlert },
     { id: 'documents', label: 'Document Verification', icon: FileSearch },
   ] as const;
 
   const filteredNavigationItems = navigationItems.filter((item) => {
     if (role === 'user') {
-      return item.id === 'chat' || item.id === 'documents';
+      return item.id === 'chat' || item.id === 'documents' || item.id === 'voice';
     }
     return true;
   });
 
   const renderActivePage = () => {
-    const allowedTabs = role === 'user' ? ['chat', 'documents'] : ['dashboard', 'chat', 'tickets', 'documents'];
+    const allowedTabs = role === 'user' 
+      ? ['chat', 'documents', 'voice'] 
+      : ['dashboard', 'chat', 'tickets', 'documents', 'voice'];
     const currentActiveTab = allowedTabs.includes(activeTab) ? activeTab : (role === 'user' ? 'chat' : 'dashboard');
 
     switch (currentActiveTab) {
@@ -40,6 +44,7 @@ export default function App() {
       case 'chat': return <ChatPage />;
       case 'tickets': return <TicketPage />;
       case 'documents': return <DocumentUploadPage />;
+      case 'voice': return <VoicePage />;
       default: return role === 'user' ? <ChatPage /> : <DashboardPage />;
     }
   };
