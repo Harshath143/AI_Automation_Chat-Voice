@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: visa_db
+    environment:
+      POSTGRES_DB: visa_support
+      POSTGRES_USER: visa_admin
+      POSTGRES_PASSWORD: visa_password123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U visa_admin -d visa_support"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: visa_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: visa_backend
+    environment:
+      - DEBUG=True
+      - SECRET_KEY=django-insecure-p@o@_z$k*s(b!#9^a!l$n=w$m84x@1j235%s#w
+      - DATABASE_URL=postgres://visa_admin:visa_password123@db:5432/visa_support
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    build: ./backend
+    container_name: visa_celery_worker
+    command: celery -A core worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgres://visa_admin:visa_password123@db:5432/visa_support
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - db
+
+  celery_beat:
+    build: ./backend
+    container_name: visa_celery_beat
+    command: celery -A core beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgres://visa_admin:visa_password123@db:5432/visa_support
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: visa_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
