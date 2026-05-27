@@ -82,7 +82,9 @@ export default function VoicePage() {
       socketRef.current.close();
     }
 
-    const wsUrl = `ws://localhost:8000/ws/chat/${sessionId}/`;
+    const isSecure = window.location.protocol === 'https:';
+    const wsProtocol = isSecure ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat/${sessionId}/`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
@@ -199,7 +201,7 @@ export default function VoicePage() {
 
     if (useElevenLabs) {
       // Premium voice: request MP3 audio from ElevenLabs/Google fallback proxy
-      const playUrl = `http://localhost:8000/api/voice/tts?text=${encodeURIComponent(text)}`;
+      const playUrl = `/api/voice/tts?text=${encodeURIComponent(text)}`;
       
       if (audioRef.current) {
         audioRef.current.pause();

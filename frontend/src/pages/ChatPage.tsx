@@ -49,7 +49,9 @@ export default function ChatPage() {
     }
 
     // Connect to django channels ASGI websocket server
-    const wsUrl = `ws://localhost:8000/ws/chat/${sessionId}/`;
+    const isSecure = window.location.protocol === 'https:';
+    const wsProtocol = isSecure ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/chat/${sessionId}/`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {

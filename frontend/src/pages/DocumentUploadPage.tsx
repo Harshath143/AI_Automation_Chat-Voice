@@ -53,7 +53,7 @@ export default function DocumentUploadPage() {
 
     try {
       // Post file to backend Django Ninja OCR endpoint
-      const res = await axios.post('http://localhost:8000/api/documents/upload', formData, {
+      const res = await axios.post('/api/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       setResult(res.data);
