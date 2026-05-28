@@ -71,3 +71,7 @@ celerybeat-schedule.db
 # Docker logs and container caching
 .docker/
 docker-compose.override.yml
+
+# Django media files / user uploads
+backend/media/
+
