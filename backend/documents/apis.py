@@ -22,6 +22,19 @@ class ExtractedFieldsSchema(Schema):
     mrz_line1: Optional[str] = None
     mrz_line2: Optional[str] = None
     visa_type: Optional[str] = None
+    
+    # BVS Global Attestation & Verification schema additions
+    institution_name: Optional[str] = None
+    degree_title: Optional[str] = None
+    graduation_date: Optional[str] = None
+    place_of_birth: Optional[str] = None
+    parent_names: Optional[str] = None
+    company_name: Optional[str] = None
+    registration_number: Optional[str] = None
+    license_type: Optional[str] = None
+    has_notary_seal: Optional[str] = None
+    has_mofa_stamp: Optional[str] = None
+    has_embassy_sticker: Optional[str] = None
 
 class DocumentResponseSchema(Schema):
     document_id: str
@@ -51,7 +64,10 @@ def upload_document(
 
     # 2. Enforce file type checks
     allowed_types = ["image/jpeg", "image/png", "application/pdf"]
-    if file.content_type not in allowed_types:
+    allowed_extensions = [".jpg", ".jpeg", ".png", ".pdf"]
+    file_ext = os.path.splitext(file.name)[1].lower()
+    
+    if file.content_type not in allowed_types and file_ext not in allowed_extensions:
         return HttpResponseBadRequest("Invalid file type. Only JPEG, PNG, and PDF are supported.")
 
     # 3. Store raw file to local storage (Simulates S3 MinIO storage upload)

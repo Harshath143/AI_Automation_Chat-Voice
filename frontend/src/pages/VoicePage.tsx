@@ -13,7 +13,7 @@ interface VoiceTurn {
 }
 
 export default function VoicePage() {
-  const { sessionId, resetSessionId, setActiveTab, refreshSessionTimer, userProfile } = useStore();
+  const { sessionId, resetSessionId, setActiveTab, refreshSessionTimer, userProfile, role } = useStore();
   const [callStatus, setCallStatus] = useState<'idle' | 'dialing' | 'connected' | 'sofia_speaking' | 'listening'>('idle');
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
@@ -29,16 +29,35 @@ export default function VoicePage() {
   const [currentTicket, setCurrentTicket] = useState<{ number: string; id: string } | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const durationIntervalRef = useRef<any>(null);
   const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef(false);
+  const shouldBeListeningRef = useRef(false);
+  const silenceTimeoutRef = useRef<any>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+  const activeTurnIdRef = useRef<string | null>(null);
+  const mockTimerRef = useRef<any>(null);
 
   // Refs to avoid stale closures in SpeechRecognition callbacks
   const callStatusRef = useRef(callStatus);
   const isMutedRef = useRef(isMuted);
   const latestTranscriptRef = useRef('');
   const accumulatedBotResponseRef = useRef('');
+  const unspokenBufferRef = useRef('');
+  const activeUtterancesCountRef = useRef(0);
+
+  const cancelAllSpeech = () => {
+    activeUtterancesCountRef.current = 0;
+    unspokenBufferRef.current = '';
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
 
   useEffect(() => {
     callStatusRef.current = callStatus;
@@ -102,6 +121,12 @@ export default function VoicePage() {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
+      // Turn-based filtering: Discard any packets that belong to an interrupted/older turn
+      if (data.turn_id && data.turn_id !== activeTurnIdRef.current) {
+        console.log(`Discarding late WebSocket packet for turn ${data.turn_id} (active turn is ${activeTurnIdRef.current})`);
+        return;
+      }
+
       if (data.type === 'history') {
         const formatted = data.messages.map((m: any) => ({
           id: m.id || generateUUID(),
@@ -141,6 +166,24 @@ export default function VoicePage() {
             ];
           }
         });
+
+        // Sentence-by-sentence streaming for browser TTS
+        if (!useElevenLabs) {
+          unspokenBufferRef.current += data.text;
+          const boundaryRegex = /([^.!?\n]+[.!?\n]+)(?:\s+|$)/g;
+          let match;
+          let lastIndex = 0;
+          while ((match = boundaryRegex.exec(unspokenBufferRef.current)) !== null) {
+            const sentence = match[1].trim();
+            if (sentence.length > 0) {
+              speakSofiaResponse(sentence);
+            }
+            lastIndex = boundaryRegex.lastIndex;
+          }
+          if (lastIndex > 0) {
+            unspokenBufferRef.current = unspokenBufferRef.current.substring(lastIndex);
+          }
+        }
       }
       else if (data.type === 'metadata') {
         setCallStatus('connected');
@@ -168,12 +211,25 @@ export default function VoicePage() {
           setCurrentTicket({ number: data.ticket_number, id: data.ticket_id });
         }
 
-        // Trigger text-to-speech for Sofia's finalized statement
-        if (finalResponseText) {
-          speakSofiaResponse(finalResponseText);
+        // Play remaining sentences or full paragraph if using ElevenLabs
+        if (useElevenLabs) {
+          if (finalResponseText) {
+            speakSofiaResponse(finalResponseText);
+          } else {
+            startListening();
+          }
         } else {
-          // If no response text (rare), return to listening
-          startListening();
+          const remaining = unspokenBufferRef.current.trim();
+          if (remaining.length > 0) {
+            speakSofiaResponse(remaining);
+          }
+          unspokenBufferRef.current = '';
+
+          // Transition if synthesis has completely finished
+          if (activeUtterancesCountRef.current === 0) {
+            setCallStatus('listening');
+            startListening();
+          }
         }
       }
     };
@@ -198,6 +254,7 @@ export default function VoicePage() {
     }
 
     setCallStatus('sofia_speaking');
+    callStatusRef.current = 'sofia_speaking';
 
     if (useElevenLabs) {
       // Premium voice: request MP3 audio from ElevenLabs/Google fallback proxy
@@ -211,8 +268,10 @@ export default function VoicePage() {
       audioRef.current = audio;
       
       audio.onended = () => {
-        setCallStatus('listening');
-        startListening();
+        if (callStatusRef.current === 'sofia_speaking') {
+          setCallStatus('listening');
+          startListening();
+        }
       };
       
       audio.onerror = (err) => {
@@ -220,7 +279,13 @@ export default function VoicePage() {
         speakViaLocalSynthesis(text);
       };
       
-      audio.play().catch((err) => {
+      audio.play().then(() => {
+        // Start listening immediately to enable AEC-assisted barge-in interruption!
+        startListening();
+        // Maintain UI state as speaking
+        setCallStatus('sofia_speaking');
+        callStatusRef.current = 'sofia_speaking';
+      }).catch((err) => {
         console.warn("Audio play blocked by browser, falling back to local synthesis.");
         speakViaLocalSynthesis(text);
       });
@@ -238,9 +303,6 @@ export default function VoicePage() {
       return;
     }
 
-    // Cancel current speech
-    window.speechSynthesis.cancel();
-
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
     
@@ -253,18 +315,32 @@ export default function VoicePage() {
     utterance.rate = 1.05; // Slightly faster for responsiveness
     utterance.pitch = 1.0;
     
+    activeUtterancesCountRef.current += 1;
+    
     utterance.onend = () => {
-      setCallStatus('listening');
-      startListening();
+      activeUtterancesCountRef.current -= 1;
+      if (activeUtterancesCountRef.current <= 0 && callStatusRef.current === 'sofia_speaking') {
+        setCallStatus('listening');
+        startListening();
+      }
     };
 
     utterance.onerror = (e) => {
       console.error("Local SpeechSynthesis error:", e);
-      setCallStatus('listening');
-      startListening();
+      activeUtterancesCountRef.current -= 1;
+      if (activeUtterancesCountRef.current <= 0 && callStatusRef.current === 'sofia_speaking') {
+        setCallStatus('listening');
+        startListening();
+      }
     };
 
     window.speechSynthesis.speak(utterance);
+    
+    // Start listening immediately to enable AEC-assisted barge-in interruption!
+    startListening();
+    // Maintain UI state as speaking
+    setCallStatus('sofia_speaking');
+    callStatusRef.current = 'sofia_speaking';
   };
 
   // Speech-To-Text core (Customer microphone processing)
@@ -277,79 +353,136 @@ export default function VoicePage() {
       return;
     }
 
-    // Stop current instance if active
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {}
+    shouldBeListeningRef.current = true;
+
+    if (isListeningRef.current) {
+      console.log("Speech recognition already active. Skipping duplicate start.");
+      return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    // Lazy-initialize the single persistent SpeechRecognition session once per call!
+    if (!recognitionRef.current) {
+      console.log("Initializing persistent SpeechRecognition instance.");
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
 
-    recognition.onstart = () => {
-      setCallStatus('listening');
-      setInterimTranscript('');
-      latestTranscriptRef.current = '';
-    };
-
-    recognition.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
-        } else {
-          interim += event.results[i][0].transcript;
+      recognition.onstart = () => {
+        isListeningRef.current = true;
+        // Keep UI waveform in speaking state if Sofia is active
+        if (callStatusRef.current !== 'sofia_speaking') {
+          setCallStatus('listening');
         }
-      }
-
-      const text = interim || final;
-      setInterimTranscript(text);
-      latestTranscriptRef.current = text;
-    };
-
-    recognition.onend = () => {
-      const speechText = latestTranscriptRef.current.trim();
-      latestTranscriptRef.current = ''; // Clear immediately
-
-      // If we captured input, dispatch to Sofia
-      if (speechText) {
-        sendTranscriptToSofia(speechText);
         setInterimTranscript('');
-      } else {
-        // If silence, and call is still active, restart listening shortly
-        if (callStatusRef.current === 'listening') {
+        latestTranscriptRef.current = '';
+      };
+
+      recognition.onresult = (event: any) => {
+        // 1. Clear any active VAD silence timer
+        if (silenceTimeoutRef.current) {
+          clearTimeout(silenceTimeoutRef.current);
+        }
+
+        let interim = '';
+        let final = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            final += event.results[i][0].transcript;
+          } else {
+            interim += event.results[i][0].transcript;
+          }
+        }
+
+        const text = interim || final;
+        setInterimTranscript(text);
+        latestTranscriptRef.current = text;
+
+        // BARGE-IN / INTERRUPTION SYSTEM:
+        // If customer speaks while Sofia is speaking, halt Sofia instantly and listen!
+        if (text.trim().length > 0 && callStatusRef.current === 'sofia_speaking') {
+          console.log("Customer interruption detected. Halting speech synthesis.");
+          
+          cancelAllSpeech();
+
+          // 3. Invalidate active turn so late packets from interrupted stream are discarded
+          activeTurnIdRef.current = 'interrupted-' + Date.now();
+
+          // 4. Clear any active offline mock timer
+          if (mockTimerRef.current) {
+            clearTimeout(mockTimerRef.current);
+            mockTimerRef.current = null;
+          }
+          
+          // 5. Immediately switch call status to listening to capture the new customer statement
+          setCallStatus('listening');
+          callStatusRef.current = 'listening';
+        }
+
+        // 4. Custom VAD Silence detection: if we have any text, start a responsive 400ms silence timer.
+        // If no new speech is heard, stop recognition to dispatch the transcript immediately!
+        if (text.trim().length > 0) {
+          silenceTimeoutRef.current = setTimeout(() => {
+            console.log("VAD: 400ms silence threshold reached. Stopping recognition to analyze speech.");
+            if (recognitionRef.current) {
+              try {
+                recognitionRef.current.stop();
+              } catch {}
+            }
+          }, 400);
+        }
+      };
+
+      recognition.onend = () => {
+        isListeningRef.current = false;
+        const speechText = latestTranscriptRef.current.trim();
+        latestTranscriptRef.current = ''; // Clear immediately
+
+        // If we captured input, dispatch to Sofia
+        if (speechText) {
+          sendTranscriptToSofia(speechText);
+          setInterimTranscript('');
+        }
+
+        // Robust restart: if we should be listening and call is active, restart immediately!
+        if (shouldBeListeningRef.current && !isMutedRef.current && callStatusRef.current !== 'idle' && callStatusRef.current !== 'dialing') {
+          console.log("Speech recognition ended but should be listening. Restarting.");
           setTimeout(() => {
-            if (callStatusRef.current === 'listening') {
+            if (shouldBeListeningRef.current && !isMutedRef.current && callStatusRef.current !== 'idle' && callStatusRef.current !== 'dialing') {
               startListening();
             }
-          }, 300);
+          }, 100);
         }
-      }
-    };
+      };
 
-    recognition.onerror = (event: any) => {
-      if (event.error !== 'no-speech') {
-        console.error("Speech Recognition error:", event.error);
-      }
-    };
+      recognition.onerror = (event: any) => {
+        if (event.error !== 'no-speech') {
+          console.error("Speech Recognition error:", event.error);
+        }
+        if (event.error === 'aborted' || event.error === 'not-allowed') {
+          isListeningRef.current = false;
+        }
+      };
 
-    recognitionRef.current = recognition;
+      recognitionRef.current = recognition;
+    }
     
     try {
-      recognition.start();
+      isListeningRef.current = true;
+      recognitionRef.current.start();
     } catch (e) {
       console.warn("Could not start Speech Recognition:", e);
+      isListeningRef.current = false;
     }
   };
 
   // Dispatches customer speech string to Sofia
   const sendTranscriptToSofia = (text: string) => {
     refreshSessionTimer();
+
+    const newTurnId = generateUUID();
+    activeTurnIdRef.current = newTurnId;
 
     // Add turn locally
     const newTurn: VoiceTurn = {
@@ -367,7 +500,7 @@ export default function VoicePage() {
 
     // Send through WebSocket if active, else trigger mock conversational stream
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ text }));
+      socketRef.current.send(JSON.stringify({ text, turn_id: newTurnId }));
     } else {
       triggerOfflineVoiceMock(text);
     }
@@ -377,7 +510,11 @@ export default function VoicePage() {
   const triggerOfflineVoiceMock = (text: string) => {
     setCallStatus('sofia_speaking');
     
-    setTimeout(() => {
+    if (mockTimerRef.current) {
+      clearTimeout(mockTimerRef.current);
+    }
+
+    mockTimerRef.current = setTimeout(() => {
       let botText = "I have noted your request. Let me look that up.";
       let intent = "general_enquiry";
       let confidence = 0.88;
@@ -389,10 +526,30 @@ export default function VoicePage() {
         intent = "visa_status_enquiry";
         botText = "Certainly! To track your visa application status, please provide your Application Reference Number, Full Name, and Date of Birth.";
         setActiveSlots({ "application_number": null, "full_name": null, "dob": null });
+      } else if (query.includes("attest") || query.includes("degree") || query.includes("legalize")) {
+        intent = "certificate_attestation";
+        botText = "I can assist you with certificate legalization. To initiate your attestation file, please state your Full Name, target Document Type, Origin Country, and target Destination Country.";
+        setActiveSlots({ "full_name": "Alexander Smith", "document_type": "Educational Degree", "origin_country": "United Kingdom", "destination_country": "United Arab Emirates" });
+      } else if (query.includes("verify") || query.includes("background") || query.includes("check")) {
+        intent = "background_verification";
+        botText = "I can initiate a background verification request. Please provide the Candidate's Name, Verification Type, target Institution, and confirm if Written Consent is received.";
+        setActiveSlots({ "candidate_name": "John Doe", "verification_type": "Education History", "institution_name": "Oxford University", "consent_received": "Yes" });
       } else if (query.includes("reschedule") || query.includes("appointment")) {
         intent = "appointment_reschedule";
         botText = "I can help you reschedule your biometric appointment. Could you please specify your preferred new appointment date and your reason for rescheduling?";
         setActiveSlots({ "current_date": "2026-05-20", "preferred_date": "2026-06-10", "reason": "Medical emergency postponement" });
+      } else if (query.includes("apostille") || query.includes("hague")) {
+        intent = "apostille_services";
+        botText = "I can help you with Apostille legalization under the Hague Convention. Can I please have your Full Name, target Document Type, and Origin Country?";
+        setActiveSlots({ "full_name": "Sarah Jenkins", "document_type": "Birth Certificate", "origin_country": "United States" });
+      } else if (query.includes("concierge") || query.includes("travel") || query.includes("golden visa")) {
+        intent = "visa_travel_concierge";
+        botText = "Welcome to the BVS Visa and Travel Concierge. To initiate your visa processing file, please state your Full Name, desired Visa Type, target Destination Country, and preferred Travel Date.";
+        setActiveSlots({ "full_name": "Liam Nelson", "visa_type": "Golden Visa Investor", "destination_country": "United Arab Emirates", "travel_date": "2026-08-15" });
+      } else if (query.includes("pro") || query.includes("gro") || query.includes("corporate") || query.includes("setup")) {
+        intent = "pro_gro_services";
+        botText = "I can assist you with Corporate PRO and company setup services. Please provide your target Company Name, specific Service Needed, desired Jurisdiction, and a Contact Person name.";
+        setActiveSlots({ "company_name": "BVS Tech Solutions FZCO", "service_needed": "Corporate Setup License Registration", "jurisdiction": "Dubai Silicon Oasis (DSO)", "contact_person": "Harshath" });
       } else if (query.includes("urgent") || query.includes("expires in 5 days") || query.includes("manager")) {
         intent = "complaint_escalation";
         confidence = 0.96;
@@ -421,7 +578,24 @@ export default function VoicePage() {
   // Place Call
   const handleStartCall = () => {
     setCallStatus('dialing');
+    shouldBeListeningRef.current = true;
     connectWebSocket();
+
+    // Activate hardware Acoustic Echo Cancellation (AEC) at the browser level
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      }).then((stream) => {
+        localStreamRef.current = stream;
+        console.log("Hardware Acoustic Echo Cancellation (AEC) activated.");
+      }).catch((err) => {
+        console.warn("Could not activate hardware echo cancellation:", err);
+      });
+    }
 
     // Simulate connection delay
     setTimeout(() => {
@@ -447,19 +621,32 @@ export default function VoicePage() {
 
   // Hang up Call
   const handleEndCall = () => {
+    shouldBeListeningRef.current = false;
     setCallStatus('idle');
+    isListeningRef.current = false;
+    
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+
+    if (mockTimerRef.current) {
+      clearTimeout(mockTimerRef.current);
+      mockTimerRef.current = null;
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+      console.log("Echo cancellation microphone stream released.");
+    }
     
     // Stop local SpeechSynthesis and Recognition
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+    cancelAllSpeech();
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
       } catch {}
-    }
-    if (audioRef.current) {
-      audioRef.current.pause();
+      recognitionRef.current = null; // Clear instance to recycle resources cleanly
     }
     
     // Close WebSocket
@@ -475,13 +662,15 @@ export default function VoicePage() {
     const nextMute = !isMuted;
     setIsMuted(nextMute);
     if (nextMute) {
+      shouldBeListeningRef.current = false;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
         } catch {}
       }
     } else {
-      if (callStatus === 'listening' || callStatus === 'connected') {
+      shouldBeListeningRef.current = true;
+      if (callStatus === 'listening' || callStatus === 'connected' || callStatus === 'sofia_speaking') {
         startListening();
       }
     }
@@ -492,12 +681,7 @@ export default function VoicePage() {
     const nextSpeakerMute = !isSpeakerMuted;
     setIsSpeakerMuted(nextSpeakerMute);
     if (nextSpeakerMute) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+      cancelAllSpeech();
       if (callStatus === 'sofia_speaking') {
         setCallStatus('connected');
         startListening();
@@ -595,131 +779,133 @@ export default function VoicePage() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)]">
+    <div className={role === 'admin' ? "grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)]" : "max-w-4xl mx-auto w-full h-[calc(100vh-140px)] flex flex-col gap-6"}>
       
       {/* LEFT COLUMN - Telemetry & Slot checklist */}
-      <div className="lg:col-span-1 glass-panel p-5 rounded-xl flex flex-col justify-between space-y-6">
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-1.5">
-              <KeyRound className="text-primary w-5 h-5 animate-pulse" />
-              NLP Telemetry
-            </h2>
-            <p className="text-xs text-gray-400 mt-1">Live semantic analysis by Groq Llama.</p>
-          </div>
-
-          {/* Active Intent telemetry */}
-          {activeIntent ? (
-            <div className="space-y-3 bg-[#0f172a]/50 p-3.5 rounded-lg border border-gray-800">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-400">Detected Intent</span>
-                <span className="bg-primary/20 text-primary-light border border-primary/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase tracking-wider">
-                  {activeIntent.replace("_", " ")}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-                  <span>Confidence Score</span>
-                  <span>{activeConfidence ? `${(activeConfidence * 100).toFixed(0)}%` : 'N/A'}</span>
-                </div>
-                <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary transition-all duration-500" 
-                    style={{ width: `${(activeConfidence || 0.85) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
+      {role === 'admin' && (
+        <div className="lg:col-span-1 glass-panel p-5 rounded-xl flex flex-col justify-between space-y-6">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <KeyRound className="text-primary w-5 h-5 animate-pulse" />
+                NLP Telemetry
+              </h2>
+              <p className="text-xs text-gray-400 mt-1">Live semantic analysis by Groq Llama.</p>
             </div>
-          ) : (
-            <div className="text-center py-6 border border-dashed border-gray-800 rounded-lg text-gray-600 text-xs">
-              Waiting for voice input...
-            </div>
-          )}
 
-          {/* Stateful slots checklist */}
-          {Object.keys(activeSlots).length > 0 && (
-            <div className="space-y-3">
-              <span className="text-xs text-gray-400 block font-semibold">Stateful Slot Checklist</span>
-              <div className="space-y-2">
-                {Object.entries(activeSlots).map(([slotKey, value]) => (
-                  <div key={slotKey} className="flex items-center justify-between text-xs p-2.5 bg-[#151c2c]/65 rounded border border-gray-800/40">
-                    <span className="capitalize font-mono text-[11px] text-gray-300">
-                      {slotKey.replace("_", " ")}
-                    </span>
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      {value ? (
-                        <>
-                          <CheckCircle className="text-success w-4 h-4" />
-                          <span className="text-[11px] text-success truncate max-w-[80px]">{value}</span>
-                        </>
-                      ) : (
-                        <>
-                          <HelpCircle className="text-warning w-4 h-4 animate-spin-slow" />
-                          <span className="text-[11px] text-warning">missing</span>
-                        </>
-                      )}
-                    </span>
+            {/* Active Intent telemetry */}
+            {activeIntent ? (
+              <div className="space-y-3 bg-background-hover dark:bg-[#1c1218]/50 p-3.5 rounded-lg border border-background-border dark:border-[#8c3b68]/15">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Detected Intent</span>
+                  <span className="bg-primary/20 text-primary-dark dark:text-primary-light border border-primary/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase tracking-wider">
+                    {activeIntent.replace("_", " ")}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-500 font-mono">
+                    <span>Confidence Score</span>
+                    <span>{activeConfidence ? `${(activeConfidence * 100).toFixed(0)}%` : 'N/A'}</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Premium Settings Panel */}
-          <div className="space-y-3 pt-4 border-t border-gray-800/60">
-            <span className="text-xs text-gray-400 block font-semibold">Voice Processing Platform</span>
-            <div className="bg-[#151c2c]/30 border border-gray-800 p-3 rounded-lg space-y-3.5">
-              <label className="flex items-center justify-between cursor-pointer">
-                <div>
-                  <span className="text-[11px] text-gray-300 font-bold block">ElevenLabs Premium Voice</span>
-                  <span className="text-[9px] text-gray-500 block">Uses hyper-realistic neural synthesis</span>
+                  <div className="w-full bg-background dark:bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary transition-all duration-500" 
+                      style={{ width: `${(activeConfidence || 0.85) * 100}%` }}
+                    ></div>
+                  </div>
                 </div>
-                <input 
-                  type="checkbox" 
-                  checked={useElevenLabs}
-                  onChange={(e) => setUseElevenLabs(e.target.checked)}
-                  className="rounded border-gray-800 bg-[#0b0f19] text-primary focus:ring-primary w-4.5 h-4.5"
-                />
-              </label>
-              <div className="flex items-center gap-2 text-[9px] text-gray-500 bg-[#0f172a]/80 p-2 rounded border border-gray-800/40">
-                <Sparkles className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
-                <span>Zero-key automatic Google TTS fallback included!</span>
+              </div>
+            ) : (
+              <div className="text-center py-6 border border-dashed border-background-border dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 text-xs">
+                Waiting for voice input...
+              </div>
+            )}
+
+            {/* Stateful slots checklist */}
+            {Object.keys(activeSlots).length > 0 && (
+              <div className="space-y-3">
+                <span className="text-xs text-gray-500 dark:text-gray-400 block font-semibold">Stateful Slot Checklist</span>
+                <div className="space-y-2">
+                  {Object.entries(activeSlots).map(([slotKey, value]) => (
+                    <div key={slotKey} className="flex items-center justify-between text-xs p-2.5 bg-background-hover dark:bg-[#1c1218]/65 rounded border border-background-border dark:border-gray-800/40">
+                      <span className="capitalize font-mono text-[11px] text-slate-700 dark:text-gray-300">
+                        {slotKey.replace("_", " ")}
+                      </span>
+                      <span className="flex items-center gap-1.5 font-semibold">
+                        {value ? (
+                          <>
+                            <CheckCircle className="text-success w-4 h-4" />
+                            <span className="text-[11px] text-success truncate max-w-[80px]">{value}</span>
+                          </>
+                        ) : (
+                          <>
+                            <HelpCircle className="text-warning w-4 h-4 animate-spin-slow" />
+                            <span className="text-[11px] text-warning">missing</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Premium Settings Panel */}
+            <div className="space-y-3 pt-4 border-t border-background-border dark:border-gray-800/60">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block font-semibold">Voice Processing Platform</span>
+              <div className="bg-background-hover dark:bg-[#1c1218]/30 border border-background-border dark:border-gray-800 p-3 rounded-lg space-y-3.5">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div>
+                    <span className="text-[11px] text-slate-700 dark:text-gray-300 font-bold block">ElevenLabs Premium Voice</span>
+                    <span className="text-[9px] text-gray-500 block">Uses hyper-realistic neural synthesis</span>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={useElevenLabs}
+                    onChange={(e) => setUseElevenLabs(e.target.checked)}
+                    className="rounded border-background-border dark:border-gray-800 bg-background dark:bg-[#0b0f19] text-primary focus:ring-primary w-5 h-5"
+                  />
+                </label>
+                <div className="flex items-center gap-2 text-[9px] text-gray-500 bg-background dark:bg-[#0f172a]/80 p-2 rounded border border-background-border dark:border-gray-800/40">
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
+                  <span>Zero-key automatic Google TTS fallback included!</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Action Center - Ticket generated & reset session */}
-        <div className="space-y-3 pt-4 border-t border-gray-800">
-          {currentTicket && (
-            <div className="bg-yellow-500/10 border border-yellow-500/20 p-3.5 rounded-lg space-y-2">
-              <div className="flex items-center gap-1.5 text-xs text-yellow-400 font-bold uppercase tracking-wider">
-                <Ticket className="w-4.5 h-4.5" />
-                Ticket Generated
+          {/* Action Center - Ticket generated & reset session */}
+          <div className="space-y-3 pt-4 border-t border-background-border dark:border-gray-800">
+            {currentTicket && (
+              <div className="bg-yellow-500/10 border border-yellow-500/20 p-3.5 rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5 text-xs text-yellow-500 dark:text-yellow-400 font-bold uppercase tracking-wider">
+                  <Ticket className="w-5 h-5" />
+                  Ticket Generated
+                </div>
+                <p className="text-[11px] text-slate-700 dark:text-gray-300 font-mono">ID: {currentTicket.number}</p>
+                <button 
+                  onClick={() => setActiveTab('tickets')}
+                  className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 dark:text-yellow-300 text-xs py-1.5 rounded transition font-medium flex items-center justify-center gap-1"
+                >
+                  Go to Workspace
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <p className="text-[11px] text-gray-300 font-mono">ID: {currentTicket.number}</p>
-              <button 
-                onClick={() => setActiveTab('tickets')}
-                className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 text-xs py-1.5 rounded transition font-medium flex items-center justify-center gap-1"
-              >
-                Go to Workspace
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+            )}
 
-          <button 
-            onClick={handleResetSession}
-            className="w-full bg-[#1e293b]/50 hover:bg-[#1e293b] border border-gray-800 text-xs text-gray-300 py-2.5 rounded-lg transition flex items-center justify-center gap-1.5"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Reset Voice Session
-          </button>
+            <button 
+              onClick={handleResetSession}
+              className="w-full bg-background-hover hover:bg-background-border dark:bg-[#1e293b]/50 dark:hover:bg-[#1e293b] border border-background-border dark:border-gray-800 text-xs text-slate-700 dark:text-gray-300 py-2.5 rounded-lg transition flex items-center justify-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Reset Voice Session
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* MIDDLE & RIGHT - Call Interface Terminal */}
-      <div className="lg:col-span-3 grid grid-rows-3 gap-6 h-full">
+      <div className={role === 'admin' ? "lg:col-span-3 grid grid-rows-3 gap-6 h-full animate-fade-in" : "flex-1 grid grid-rows-3 gap-6 h-full animate-fade-in"}>
         
         {/* UPPER PANEL - Softphone Client Dialer */}
         <div className="row-span-1 glass-panel p-6 rounded-xl flex items-center justify-between border border-gray-800/30 relative overflow-hidden">
@@ -744,20 +930,35 @@ export default function VoicePage() {
             </button>
             
             <div className="space-y-1.5">
-              <span className="text-lg font-bold text-white block">
-                {callStatus === 'idle' && 'AI Operator Offline'}
-                {callStatus === 'dialing' && 'Initiating Secure Line...'}
-                {callStatus === 'connected' && 'Call Active (Sofia Muted)'}
-                {callStatus === 'sofia_speaking' && 'Sofia Speaking...'}
-                {callStatus === 'listening' && 'Listening to Customer...'}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold text-slate-800 dark:text-white block">
+                  {callStatus === 'idle' && 'AI Operator Offline'}
+                  {callStatus === 'dialing' && 'Initiating Secure Line...'}
+                  {callStatus === 'connected' && 'Call Active (Sofia Muted)'}
+                  {callStatus === 'sofia_speaking' && 'Sofia Speaking...'}
+                  {callStatus === 'listening' && 'Listening to Customer...'}
+                </span>
+                {callStatus === 'sofia_speaking' && (
+                  <button
+                    onClick={() => {
+                      cancelAllSpeech();
+                      setCallStatus('listening');
+                      callStatusRef.current = 'listening';
+                      startListening();
+                    }}
+                    className="bg-rose-500/20 hover:bg-rose-500/40 text-rose-600 dark:text-rose-300 border border-rose-500/35 text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded transition shrink-0 animate-pulse"
+                  >
+                    Interrupt Sofia
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${
                   callStatus === 'idle' ? 'bg-gray-500' :
                   callStatus === 'dialing' ? 'bg-yellow-500 animate-ping' :
                   callStatus === 'listening' ? 'bg-primary animate-pulse' : 'bg-green-500'
                 }`}></span>
-                <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono uppercase tracking-wider">
                   {callStatus === 'idle' ? 'Ready to Dial' : `Duration: ${formatTime(callDuration)}`}
                 </span>
               </div>
@@ -770,14 +971,14 @@ export default function VoicePage() {
           </div>
 
           {/* VoIP Call Actions */}
-          <div className="flex items-center gap-2.5 bg-[#0f172a]/60 border border-gray-800 p-2 rounded-xl shrink-0">
+          <div className="flex items-center gap-2.5 bg-background dark:bg-[#0f090d]/60 border border-background-border dark:border-gray-800 p-2 rounded-xl shrink-0">
             <button
               onClick={handleToggleMute}
               disabled={callStatus === 'idle'}
               className={`p-3 rounded-lg transition ${
                 isMuted 
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800/40 disabled:opacity-30'
+                  ? 'bg-red-500/20 text-red-500 dark:text-red-400 border border-red-500/30' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-secondary dark:hover:text-white hover:bg-background-hover dark:hover:bg-gray-800/40 disabled:opacity-30'
               }`}
               title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
             >
@@ -789,8 +990,8 @@ export default function VoicePage() {
               disabled={callStatus === 'idle'}
               className={`p-3 rounded-lg transition ${
                 isSpeakerMuted 
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800/40 disabled:opacity-30'
+                  ? 'bg-red-500/20 text-red-500 dark:text-red-400 border border-red-500/30' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-secondary dark:hover:text-white hover:bg-background-hover dark:hover:bg-gray-800/40 disabled:opacity-30'
               }`}
               title={isSpeakerMuted ? "Unmute Speaker" : "Mute Speaker"}
             >
@@ -800,14 +1001,14 @@ export default function VoicePage() {
         </div>
 
         {/* LOWER PANEL - Scrolling Caption Transcript Log */}
-        <div className="row-span-2 glass-panel rounded-xl flex flex-col overflow-hidden border border-gray-800/30 h-full">
+        <div className="row-span-2 glass-panel rounded-xl flex flex-col overflow-hidden border border-background-border dark:border-gray-800/30 h-full">
           {/* Header */}
-          <div className="p-4 bg-[#151c2c]/85 border-b border-gray-800 flex items-center justify-between shrink-0">
+          <div className="p-4 bg-secondary text-white border-b border-secondary-dark flex items-center justify-between shrink-0 shadow-sm">
             <div className="flex items-center gap-2">
-              <Bot className="w-4.5 h-4.5 text-primary" />
+              <Bot className="w-5 h-5 text-primary-light" />
               <span className="text-xs font-bold text-white uppercase tracking-wider">Live Call Caption Log</span>
             </div>
-            <span className="text-[10px] text-gray-500 font-mono">Channels WebSocket Active</span>
+            <span className="text-[10px] text-gray-300 dark:text-gray-400 font-mono">Channels WebSocket Active</span>
           </div>
 
           {/* Turn bubbles list */}
@@ -818,7 +1019,7 @@ export default function VoicePage() {
                   <Phone className="w-5 h-5" />
                 </div>
                 <div className="space-y-1 max-w-xs">
-                  <span className="text-sm font-bold text-white block">No Active Connection</span>
+                  <span className="text-sm font-bold text-slate-800 dark:text-white block">No Active Connection</span>
                   <p className="text-xs text-gray-500 leading-normal">
                     Click the green dialer button above to connect and speak to Sofia using voice.
                   </p>
@@ -832,8 +1033,8 @@ export default function VoicePage() {
                 >
                   <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 ${
                     turn.sender === 'customer' 
-                      ? 'bg-primary/20 text-primary-light' 
-                      : 'bg-[#151c2c] border border-gray-800 text-accent'
+                      ? 'bg-primary/20 text-primary' 
+                      : 'bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-[#8c3b68]/30 text-accent'
                   }`}>
                     {turn.sender === 'customer' ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
                   </div>
@@ -841,7 +1042,7 @@ export default function VoicePage() {
                   <div className={`rounded-xl p-3 text-sm leading-relaxed ${
                     turn.sender === 'customer'
                       ? 'bg-primary text-white rounded-tr-none shadow-md shadow-primary/10'
-                      : 'bg-[#151c2c] border border-gray-800/80 text-gray-200 rounded-tl-none'
+                      : 'bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-[#8c3b68]/20 text-slate-800 dark:text-gray-200 rounded-tl-none'
                   }`}>
                     <p>{turn.text}</p>
                     <span className={`text-[8px] mt-1.5 block font-mono ${
@@ -872,10 +1073,10 @@ export default function VoicePage() {
             {/* Speaking/Typing animation */}
             {callStatus === 'sofia_speaking' && !turns.find(t => t.id === 'stream-voice') && (
               <div className="flex gap-3 max-w-[80%]">
-                <div className="w-7 h-7 rounded-full bg-[#151c2c] border border-gray-800 text-accent flex items-center justify-center">
+                <div className="w-7 h-7 rounded-full bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-[#8c3b68]/30 text-accent flex items-center justify-center">
                   <Bot className="w-3.5 h-3.5 animate-bounce" />
                 </div>
-                <div className="bg-[#151c2c] border border-gray-800/80 p-3 rounded-xl rounded-tl-none flex items-center gap-1">
+                <div className="bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-gray-800/80 p-3 rounded-xl rounded-tl-none flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                   <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
                   <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
@@ -886,13 +1087,45 @@ export default function VoicePage() {
             <div ref={transcriptEndRef} />
           </div>
 
+          {/* Alternative Voice Fallback Text input */}
+          {callStatus !== 'idle' && (
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const input = form.elements.namedItem('voiceFallbackText') as HTMLInputElement;
+                const val = input.value.trim();
+                if (val) {
+                  // Halt speaking instantly
+                  cancelAllSpeech();
+                  sendTranscriptToSofia(val);
+                  input.value = '';
+                }
+              }}
+              className="p-3 bg-background-hover/40 dark:bg-[#1c1218]/40 border-t border-background-border dark:border-gray-800/60 flex gap-2 items-center shrink-0"
+            >
+              <input
+                type="text"
+                name="voiceFallbackText"
+                placeholder="Microphone blocked or not analyzing? Type query here and press enter..."
+                className="flex-1 bg-background dark:bg-[#0f090d]/75 border border-background-border dark:border-gray-800 focus:border-primary/50 text-xs px-3.5 py-2.5 rounded-lg text-slate-800 dark:text-white font-medium focus:outline-none transition placeholder-slate-400 dark:placeholder-gray-600"
+              />
+              <button
+                type="submit"
+                className="bg-primary/20 hover:bg-primary text-primary-dark dark:text-primary-light hover:text-white border border-primary/30 text-xs px-3.5 py-2 rounded-lg transition-all font-bold uppercase tracking-wider"
+              >
+                Send
+              </button>
+            </form>
+          )}
+
           {/* Micro-diagnostic indicator bar */}
-          <div className="p-3 bg-[#0b0f19]/70 border-t border-gray-800/60 flex justify-between items-center px-4 shrink-0">
-            <span className="text-[10px] text-gray-500 flex items-center gap-1.5">
+          <div className="p-3 bg-background-hover dark:bg-[#0f090d]/70 border-t border-background-border dark:border-gray-800/60 flex justify-between items-center px-4 shrink-0 text-slate-500 dark:text-gray-400">
+            <span className="text-[10px] flex items-center gap-1.5">
               <Mic className="w-3 h-3 text-primary animate-pulse" />
-              Microphone status: <strong className="text-gray-300 uppercase">{callStatus === 'listening' ? 'active' : 'idle'}</strong>
+              Microphone status: <strong className="text-slate-700 dark:text-gray-300 uppercase">{callStatus === 'listening' ? 'active' : 'idle'}</strong>
             </span>
-            <span className="text-[10px] text-gray-500">
+            <span className="text-[10px]">
               STT: Browser Native | TTS: {useElevenLabs ? 'ElevenLabs' : 'Browser Web Speech'}
             </span>
           </div>

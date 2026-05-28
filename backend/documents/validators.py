@@ -72,6 +72,25 @@ def check_document_expiry(expiry_date_str: str) -> dict:
         "flag": "document_expired" if expired else None
     }
 
+def validate_attestation_stamps(fields: dict) -> list:
+    """
+    Checks if BVS Global attestation stamps are present in extracted fields.
+    """
+    flags = []
+    
+    has_notary = fields.get('has_notary_seal')
+    has_mofa = fields.get('has_mofa_stamp')
+    has_embassy = fields.get('has_embassy_sticker')
+    
+    if not has_notary or str(has_notary).lower() not in ['true', 'yes', 'present', '1']:
+        flags.append("notary_seal_missing")
+    if not has_mofa or str(has_mofa).lower() not in ['true', 'yes', 'present', '1']:
+        flags.append("mofa_stamp_missing")
+    if not has_embassy or str(has_embassy).lower() not in ['true', 'yes', 'present', '1']:
+        flags.append("embassy_sticker_missing")
+        
+    return flags
+
 def run_comprehensive_validation(doc_type: str, fields: dict) -> tuple:
     """
     Runs type-specific validations over extracted fields.
@@ -85,7 +104,10 @@ def run_comprehensive_validation(doc_type: str, fields: dict) -> tuple:
     mandatory_fields = {
         'passport': ['full_name', 'document_number', 'nationality', 'expiry_date'],
         'emirates_id': ['full_name', 'document_number', 'expiry_date'],
-        'visa': ['full_name', 'document_number', 'expiry_date']
+        'visa': ['full_name', 'document_number', 'expiry_date'],
+        'educational_degree': ['full_name', 'institution_name', 'degree_title', 'graduation_date'],
+        'birth_certificate': ['full_name', 'date_of_birth', 'place_of_birth', 'parent_names'],
+        'commercial_certificate': ['company_name', 'registration_number', 'license_type', 'expiry_date']
     }
     
     fields_to_check = mandatory_fields.get(doc_type, [])
@@ -94,14 +116,15 @@ def run_comprehensive_validation(doc_type: str, fields: dict) -> tuple:
         if not val or str(val).strip() == "":
             flags.append(f"{field}_missing")
             
-    # 2. Expiry validation
-    expiry_val = check_document_expiry(fields.get('expiry_date'))
-    if expiry_val["flag"]:
-        flags.append(expiry_val["flag"])
-    elif expiry_val["expired"]:
-        flags.append("document_expired")
+    # 2. Expiry validation (for documents that have an expiry date)
+    if 'expiry_date' in fields_to_check or fields.get('expiry_date'):
+        expiry_val = check_document_expiry(fields.get('expiry_date'))
+        if expiry_val["flag"]:
+            flags.append(expiry_val["flag"])
+        elif expiry_val["expired"]:
+            flags.append("document_expired")
         
-    # 3. Type-specific format checks
+    # 3. Type-specific format & stamp checks
     if doc_type == 'passport':
         doc_num = fields.get('document_number')
         if doc_num and not validate_passport_number(doc_num):
@@ -112,11 +135,16 @@ def run_comprehensive_validation(doc_type: str, fields: dict) -> tuple:
         if doc_num and not validate_emirates_id(doc_num):
             flags.append("invalid_emirates_id_checksum")
             
+    elif doc_type in ['educational_degree', 'birth_certificate', 'commercial_certificate']:
+        # Run BVS Global stamp validation
+        stamp_flags = validate_attestation_stamps(fields)
+        flags.extend(stamp_flags)
+            
     # Determine final status
     status = 'valid'
     if any(f in flags for f in ["document_expired", "invalid_emirates_id_checksum", "invalid_passport_format"]):
         status = 'invalid'
-    elif flags: # Some missing non-critical or formatting flags
+    elif flags: # Some missing non-critical or formatting/stamp flags
         status = 'manual_review_required'
         
     # Check OCR confidence score

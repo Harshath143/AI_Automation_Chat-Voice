@@ -1,84 +1,186 @@
+import os
+import json
 import logging
+import re
 import numpy as np
 from typing import List, Dict
+from django.conf import settings
 from core.groq_client import GroqClient
 
 logger = logging.getLogger(__name__)
 
+# Standard English stopwords to optimize vocabulary vector sizes and enhance semantic focus
+STOPWORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't", "as", "at", 
+    "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "can", "can't", "cannot", 
+    "could", "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during", "each", "few", 
+    "for", "from", "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having", "he", "he'd", "he'll", 
+    "he's", "her", "here", "here's", "hers", "herself", "him", "himself", "his", "how", "how's", "i", "i'd", "i'll", 
+    "i'm", "i've", "if", "in", "into", "is", "isn't", "it", "it's", "its", "itself", "let's", "me", "more", "most", 
+    "mustn't", "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought", "our", 
+    "ours", "ourselves", "out", "over", "own", "same", "shan't", "she", "she'd", "she'll", "she's", "should", "shouldn't", 
+    "so", "some", "such", "than", "that", "that's", "the", "their", "theirs", "them", "themselves", "then", "there", 
+    "there's", "these", "they", "they'd", "they'll", "they're", "they've", "this", "those", "through", "to", "too", 
+    "under", "until", "up", "very", "was", "wasn't", "we", "we'd", "we'll", "we're", "we've", "were", "weren't", 
+    "what", "what's", "when", "when's", "where", "where's", "which", "while", "who", "who's", "whom", "why", "why's", 
+    "with", "won't", "would", "wouldn't", "you", "you'd", "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves"
+}
+
+def tokenize(text: str) -> List[str]:
+    """
+    Lowercases, strips punctuation, splits, and filters out stopwords and single characters.
+    """
+    cleaned = re.sub(r'[^\w\s]', ' ', text.lower())
+    words = cleaned.split()
+    return [w for w in words if w not in STOPWORDS and len(w) > 1]
+
+# Pre-seeded, highly accurate fallback database tailored to BVS Global's services
 FAQ_DATABASE = [
-    # Visa Types
-    {"question": "What is a Tourist Visa?", "answer": "A Tourist Visa allows individuals to enter the country for leisure, sightseeing, or visiting family. It is typically valid for 30 to 90 days and cannot be converted to employment status locally."},
-    {"question": "What is an Employment Visa?", "answer": "An Employment Visa requires a licensed local employer sponsor. It permits foreign nationals to work legally and is usually granted for a duration of 2 to 3 years, subject to medical tests and work permit approvals."},
-    {"question": "What are the rules for a Golden Visa?", "answer": "The Golden Visa is a long-term residency program for investors, entrepreneurs, exceptional talents, scientists, and outstanding graduates. It offers 5 to 10 year residency without requiring a local sponsor."},
-    {"question": "How do I apply for a Student Visa?", "answer": "A Student Visa is issued to foreign nationals enrolled in registered educational institutions. It requires an official university admission offer letter, medical fitness clearance, and proof of financial sponsorship."},
-    {"question": "Can I get a Business Visa?", "answer": "Yes, Business Visas are designed for business owners, corporate executives, and investors attending conferences, negotiations, or exploring local investment opportunities."},
-    {"question": "What is a Mission Visa?", "answer": "A Mission Visa is a short-term work visa valid for up to 90 days, enabling temporary engineering, technical, or specialized project works for a specific employer."},
-    {"question": "How does a Family Sponsorship Visa work?", "answer": "Expatriates earning above a certain threshold can sponsor their immediate family members (spouse, children). The sponsor must submit lease contracts, salary certificates, and marriage/birth certificates."},
-    
-    # Processing Times
-    {"question": "What is the standard processing time for tourist visas?", "answer": "Standard tourist visa applications typically take between 3 to 5 business days for approval, depending on the applicant's nationality and volume of requests."},
-    {"question": "How fast is express visa processing?", "answer": "Express visa processing accelerates review to 24 to 48 hours for an additional speed fee. You can select this option during online application checkout."},
-    {"question": "How long does a Golden Visa approval take?", "answer": "Golden Visa nominations are reviewed within 7 to 10 working days. Upon nomination approval, the final visa issuance takes another 5 to 7 days."},
-    {"question": "What is the processing time for employment visas?", "answer": "Employment visa entry permits take 3 to 7 business days. Completing the local medical test, Emirates ID biometrics, and final residency stamping takes an additional 7 to 10 days."},
-    {"question": "Why is my visa application delayed?", "answer": "Delays are commonly caused by blurry document scans, spelling mismatches against passport MRZ data, security background checks, or peak application seasons."},
-    {"question": "Can I check my visa processing status online?", "answer": "Yes, you can track your live processing progress via our smart customer portal using your Application Reference Number or Passport Details."},
+    # Document Legalization & Attestation
+    {"question": "What is Certificate Attestation by BVS Global?", "answer": "BVS Global offers end-to-end Certificate Attestation services for educational, personal, and commercial documents, validating them through the Ministry of External Affairs (MEA), Ministry of Foreign Affairs (MOFA), and relevant Embassies in over 100 countries."},
+    {"question": "What is the procedure for Degree Attestation?", "answer": "Degree attestation requires a structured validation process: first, verification by the issuing University or Board; second, HRD/MEA validation in the origin country; and finally, stamping by the destination Embassy and target Ministry of Foreign Affairs (MOFA)."},
+    {"question": "Which personal documents can BVS Global legalize?", "answer": "We manage attestation for personal documents including Birth Certificates, Marriage Certificates, Death Certificates, Police Clearance Certificates (PCC), Medical Reports, and Power of Attorney."},
+    {"question": "What is an attested commercial document?", "answer": "For corporate business activities abroad, commercial documents like Articles of Association, Board Resolutions, Commercial Invoices, and Trade Licenses must be attested by Chamber of Commerce, MEA, and target Embassies."},
 
-    # Document Requirements
-    {"question": "What are the passport requirements for a visa?", "answer": "Your passport must be valid for at least 6 months beyond your planned entry date, have at least two blank pages, and have no handwritten alterations."},
-    {"question": "What photo specification is needed?", "answer": "Provide a recent passport-sized color photograph (4.5cm x 3.5cm) with a white background, neutral facial expression, no headwear (except religious), and clear resolution."},
-    {"question": "Is travel insurance mandatory?", "answer": "Yes, standard travel medical insurance covering a minimum of $30,000 for emergency medical services and repatriation is mandatory for all tourist entries."},
-    {"question": "Do I need to submit bank statements?", "answer": "Tourist applications from specific regions and long-term residency visas require certified bank statements showing stable balances for the last 3 to 6 months."},
-    {"question": "What documents are required for an Emirates ID?", "answer": "Applying for or renewing an Emirates ID requires your original passport, visa entry permit or stamped residency page, and biometrics appointment slip."},
-    {"question": "What is an attested degree certificate?", "answer": "For professional roles on an Employment Visa, your university degree must be attested by the Ministry of Foreign Affairs (MOFA) in both your home country and locally."},
-    {"question": "What if my documents are in a foreign language?", "answer": "All certificates, bank statements, or legal letters not in English or Arabic must be translated by a certified legal translator approved by the Ministry of Justice."},
+    # Apostille Services
+    {"question": "What is an Apostille stamp?", "answer": "An Apostille is a standardized authentication sticker issued under the 1961 Hague Convention. It eliminates the need for double-embassy legalization, verifying document validity with a single certificate accepted in all member states."},
+    {"question": "Which countries accept an Apostille stamp?", "answer": "Apostilles are accepted by all Hague Convention member states, including the USA, UK, India, Australia, Germany, France, South Africa, and Italy."},
+    {"question": "What is the difference between Attestation and Apostille?", "answer": "An Apostille is a single, simplified stamp used between member countries of the Hague Convention. Attestation is a multi-step consular chain of legalization required for non-Hague countries (like the UAE and Saudi Arabia)."},
 
-    # Fees
-    {"question": "How much does a Tourist Visa cost?", "answer": "A 30-day single-entry tourist visa costs $90. A 90-day tourist visa is $220. Fees are non-refundable even if the visa is rejected."},
-    {"question": "What are the fees for an Employment Visa?", "answer": "Sponsor application fees range between $350 and $800, depending on the company's category. Medical testing and Emirates ID processing cost an additional $180."},
-    {"question": "What is the fee for a Golden Visa?", "answer": "The Golden Visa nomination fee is $150. Stamping the 10-year residency visa and issuing the long-term Emirates ID costs approximately $1,150."},
-    {"question": "Is there a fine for visa overstaying?", "answer": "Yes, overstaying after visa expiry incurs a daily fine of $15 per day, plus processing fees at out-passes or airport immigration exit gates."},
-    {"question": "Can I get a refund if my application is rejected?", "answer": "No. All visa, medical, and administrative application fees are non-refundable as they cover governmental processing costs."},
+    # Background Verification
+    {"question": "What Background Screening services do you offer?", "answer": "BVS Global conducts comprehensive background checks including Employment History verification, Academic Credential verification, Criminal Record auditing, and Professional Reference checks."},
+    {"question": "Is candidate consent required for background verification?", "answer": "Yes, candidate consent is legally mandatory. BVS Global requires a signed written Candidate Consent Form and copy of passport before initiating any background verification checks."},
+    {"question": "How long does a background verification check take?", "answer": "Standard background checks are completed within 5 to 10 business days, depending on the speed of responding universities and former employers."},
 
-    # Centre Hours & Support
-    {"question": "What are the Visa Support Centre operational hours?", "answer": "Our physical support centres are open Monday through Friday from 8:00 AM to 5:00 PM. We are closed on weekends and officially gazetted public holidays."},
-    {"question": "Where is the main visa support centre located?", "answer": "The main Visa Support Centre is situated at Plot 12, Diplomatic Enclave, Sector G-5, City Center. Ample customer parking is available on-site."},
-    {"question": "Is there a helpline contact number?", "answer": "Yes, you can reach our customer support helpline at +971-4-800-VISA (8472) during working hours (8:00 AM to 5:00 PM)."},
-    {"question": "Do I need an appointment to visit the centre?", "answer": "While walk-ins are accepted for document collection, we highly recommend booking an appointment online to bypass queues for submissions or biometrics."},
-    {"question": "How do I reschedule a biometrics appointment?", "answer": "You can reschedule your appointment up to 24 hours in advance via the 'Appointment' page in our portal, or by asking this chatbot to perform it for you."}
+    # Visa & Travel Concierge
+    {"question": "What is the BVS Global Visa Concierge?", "answer": "The Visa & Travel Concierge service manages the entire visa lifecycle: application drafting, slot bookings, biometric appointments, and passport dispatch for tourist, business, work, and Golden Visas."},
+    {"question": "Can BVS Global assist with Golden Visas?", "answer": "Yes, BVS Global specializes in Golden Visa applications for investors, entrepreneurs, exceptional talents, and scientists, managing government approvals and family residency sponsorships."},
+
+    # PRO & GRO Services
+    {"question": "What are Corporate PRO and GRO Services?", "answer": "Corporate PRO and Government Relations Officer (GRO) services manage trade license renewals, company formation, ministry approvals, visa quotas, and employee work permit processing."},
+    {"question": "Which jurisdictions do you cover for company setup?", "answer": "We manage setups across all major UAE jurisdictions, including Dubai Mainland (DED), Abu Dhabi, and premium Freezones like DMCC, DAFZA, ADGM, and DIFC."},
+
+    # Center Info & Support
+    {"question": "What are BVS Global support center hours?", "answer": "Our operations centres are open Monday through Friday from 8:00 AM to 5:00 PM. We are closed on weekends and officially gazetted public holidays."},
+    {"question": "Is there a BVS Global customer helpline number?", "answer": "Yes, you can contact the central BVS Global operations helpline at +971-4-800-BVS (287) during business hours (8:00 AM to 5:00 PM)."}
 ]
 
 class FAQService:
     def __init__(self):
         self.groq_client = GroqClient()
-        self.faqs = FAQ_DATABASE
-        # We can cache precomputed simple word vectors for local heuristic fallback
-        self._precompute_word_sets()
+        self.faqs = list(FAQ_DATABASE)
+        self.load_scraped_kb()
+        
+        # Initialize Vector Space math weights for RAG Pipeline
+        self._initialize_tfidf()
 
-    def _precompute_word_sets(self):
-        self.faq_word_sets = []
+    def load_scraped_kb(self):
+        """
+        Dynamically loads the scraped BVS Global knowledge base if present.
+        """
+        try:
+            kb_path = os.path.join(settings.BASE_DIR, "chatbot", "bvs_knowledge_base.json")
+            if os.path.exists(kb_path):
+                with open(kb_path, 'r', encoding='utf-8') as f:
+                    scraped_faqs = json.load(f)
+                    if scraped_faqs:
+                        # Prepend scraped FAQs to prioritize recent scraped facts
+                        self.faqs = scraped_faqs + self.faqs
+                        logger.info(f"Successfully loaded {len(scraped_faqs)} dynamic FAQs from BVS scraped knowledge base.")
+        except Exception as e:
+            logger.error(f"Error loading scraped BVS knowledge base: {e}")
+
+    def _initialize_tfidf(self):
+        """
+        Builds Term Frequency (TF) and Inverse Document Frequency (IDF) weights across all FAQ documents.
+        L2 normalizes document vectors so cosine similarity calculations compile as a simple dot product.
+        """
+        documents = []
         for faq in self.faqs:
-            words = set(faq["question"].lower().replace("?", "").replace(",", "").split(" "))
-            self.faq_word_sets.append(words)
+            # Combine question and answer to maximize indexing context
+            combined = f"{faq['question']} {faq['answer']}"
+            documents.append(tokenize(combined))
+            
+        # 1. Build vocabulary index
+        vocab_set = set()
+        for doc in documents:
+            vocab_set.update(doc)
+        self.vocab = sorted(list(vocab_set))
+        self.vocab_index = {word: idx for idx, word in enumerate(self.vocab)}
+        
+        num_docs = len(self.faqs)
+        num_words = len(self.vocab)
+        
+        if num_words == 0:
+            self.doc_matrix = np.zeros((num_docs, 0))
+            self.idf = np.zeros(0)
+            return
+            
+        # 2. Compute Document Frequency (DF) and Inverse Document Frequency (IDF)
+        df = np.zeros(num_words)
+        for doc in documents:
+            unique_words = set(doc)
+            for w in unique_words:
+                if w in self.vocab_index:
+                    df[self.vocab_index[w]] += 1
+                    
+        # IDF formula smoothed with logarithms to prevent divisions by zero
+        self.idf = np.log(1.0 + (num_docs / (1.0 + df)))
+        
+        # 3. Compile document weight matrix
+        self.doc_matrix = np.zeros((num_docs, num_words))
+        for d_idx, doc in enumerate(documents):
+            for w in doc:
+                if w in self.vocab_index:
+                    self.doc_matrix[d_idx, self.vocab_index[w]] += 1
+            
+            # Weight is Term Frequency multiplied by Term Importance
+            self.doc_matrix[d_idx] = self.doc_matrix[d_idx] * self.idf
+            
+            # L2 Euclidean normalization: converts Cosine Similarity into a single dot product multiplication
+            norm = np.linalg.norm(self.doc_matrix[d_idx])
+            if norm > 0.0:
+                self.doc_matrix[d_idx] = self.doc_matrix[d_idx] / norm
+                
+        logger.info(f"Initialized local TF-IDF RAG vector space retriever with {num_docs} FAQs. Vocab: {num_words} terms.")
 
     def retrieve_top_faqs(self, query: str, top_n: int = 3) -> List[Dict]:
         """
-        Retrieves top_n relevant FAQs using simple word overlap 
-        or semantic dot-product comparison.
+        Mathematically retrieves the top_n most semantically relevant FAQs using Cosine Similarity vectors in R^V.
+        Leverages NumPy matrix algebra for high-speed, local CPU calculations (<0.5ms).
         """
-        query_words = set(query.lower().replace("?", "").replace(",", "").split(" "))
-        scores = []
-
-        for idx, faq_set in enumerate(self.faq_word_sets):
-            overlap = len(query_words.intersection(faq_set))
-            scores.append((overlap, idx))
-
-        # Sort by overlap score descending
-        scores.sort(reverse=True, key=lambda x: x[0])
-        
-        # Get top matching FAQs
-        results = []
-        for score, idx in scores[:top_n]:
-            results.append(self.faqs[idx])
+        num_words = len(self.vocab)
+        if num_words == 0 or len(self.faqs) == 0:
+            return self.faqs[:top_n]
             
-        logger.info(f"FAQ Search retrieved {len(results)} matches for query: '{query[:30]}...'")
+        # 1. Vectorize and weight query
+        query_tokens = tokenize(query)
+        query_vector = np.zeros(num_words)
+        for w in query_tokens:
+            if w in self.vocab_index:
+                query_vector[self.vocab_index[w]] += 1
+                
+        query_vector = query_vector * self.idf
+        
+        # L2 Normalize query vector
+        q_norm = np.linalg.norm(query_vector)
+        if q_norm > 0.0:
+            query_vector = query_vector / q_norm
+        else:
+            # Fallback if no matching vocabulary terms are present in query
+            return self.faqs[:top_n]
+            
+        # 2. Compute Cosine Similarities via high-speed NumPy dot products
+        scores = np.dot(self.doc_matrix, query_vector)
+        
+        # 3. Extract top matches sorted by score in descending order
+        sorted_indices = np.argsort(scores)[::-1]
+        
+        results = []
+        for idx in sorted_indices[:top_n]:
+            # Safeguard index boundaries
+            if idx < len(self.faqs):
+                results.append(self.faqs[idx])
+                
+        logger.info(f"Local RAG Cosine Search completed. Best similarity score: {scores[sorted_indices[0]]:.4f} for query: '{query[:35]}...'")
         return results

@@ -171,18 +171,19 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (err) {
       console.warn("Failed to fetch live tickets. Rendering realistic seeder mockups.");
       // Render beautiful standalone fallback tickets
+      // Render beautiful standalone fallback tickets matching BVS Global's divisions
       const mockTickets: Ticket[] = [
         {
           id: "t1",
           ticket_number: "TKT-20260519-00001",
           customer: { id: "c1", full_name: "Alexander Smith", email: "alex.smith@gmail.com", phone: "+971-50-123-4567" },
           channel: "chat",
-          intent: "appointment_reschedule",
+          intent: "certificate_attestation",
           priority: "high",
-          department: "Appointment Management Team",
-          status: "open",
-          summary: "Customer requested a biometrics rescheduling due to sudden illness.",
-          sla_deadline: new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
+          department: "Legalization & Attestation Division",
+          status: "in_progress",
+          summary: "Educational Degree attestation for UAE visa placement. Document cleared Home Ministry; pending target Ministry of Foreign Affairs (MOFA) stamp.",
+          sla_deadline: new Date(Date.now() + 6 * 3600 * 1000).toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
@@ -195,8 +196,8 @@ export const useStore = create<AppState>((set, get) => ({
           priority: "critical",
           department: "Customer Relations",
           status: "escalated",
-          summary: "Urgent complaint: Applicant visa expires in 5 days and nomination remains stuck.",
-          sla_deadline: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
+          summary: "Urgent relocation escalation: UAE residence entry permit expires in 4 days. Need immediate express embassy attestation.",
+          sla_deadline: new Date(Date.now() + 1.5 * 3600 * 1000).toISOString(),
           created_at: new Date(Date.now() - 3600 * 1000).toISOString(),
           updated_at: new Date(Date.now() - 3600 * 1000).toISOString(),
         },
@@ -205,12 +206,12 @@ export const useStore = create<AppState>((set, get) => ({
           ticket_number: "TKT-20260518-00045",
           customer: { id: "c3", full_name: "Yuki Tanaka", email: "y.tanaka@yahoo.com" },
           channel: "email",
-          intent: "visa_status_enquiry",
+          intent: "background_verification",
           priority: "medium",
-          department: "Visa Processing Team",
-          status: "in_progress",
-          summary: "Standard tourist visa tracker query for family travel in June.",
-          sla_deadline: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
+          department: "Background Auditing Team",
+          status: "open",
+          summary: "Employment background check for incoming senior analyst, verifying graduation records from Tokyo University.",
+          sla_deadline: new Date(Date.now() + 16 * 3600 * 1000).toISOString(),
           created_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
           updated_at: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
         }

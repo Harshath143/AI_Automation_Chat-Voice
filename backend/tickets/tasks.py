@@ -92,10 +92,10 @@ def classify_priority(ticket_id: str):
         Ticket summary: {summary}
         
         Rules:
-        - critical: legal threat, visa expiry within 7 days, detained traveller, urgent health emergencies.
-        - high: appointment within 14 days, employer-sponsored visa issue, missing mandatory travel deadline.
-        - medium: standard application delay, document query.
-        - low: general information request, fee queries.
+        - critical: legal threat, visa/passport expiry within 7 days, detained traveller, urgent travel/relocation under 5 days, or corporate trade license merger/business setup under 7 days.
+        - high: biometric appointment within 14 days, employer-sponsored visa issue, missing travel deadline, or personal certificate/educational degree attestation needed for an active relocation contract.
+        - medium: standard application delay, background verification verification query.
+        - low: general information request, fee queries, legalization process questions.
         
         Respond with valid JSON object ONLY containing keys "priority" (string) and "reason" (string).
         Ensure the priority string matches exactly one of: "low", "medium", "high", "critical".

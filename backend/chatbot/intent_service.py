@@ -14,7 +14,10 @@ class IntentService:
             "complaint_escalation",
             "general_enquiry",
             "document_upload",
-            "human_handoff_request"
+            "human_handoff_request",
+            "apostille_services",
+            "visa_travel_concierge",
+            "pro_gro_services"
         ]
 
     def classify(self, message_text: str):
@@ -37,6 +40,15 @@ class IntentService:
         if any(w in text for w in ["upload", "submit passport", "send file", "attach", "attachment", "pdf"]):
             return "document_upload", 0.90
 
+        if any(w in text for w in ["apostille", "hague convention", "hague stamp", "apostil"]):
+            return "apostille_services", 0.95
+
+        if any(w in text for w in ["concierge", "travel support", "tourist visa", "business visa", "relocate", "relocation support"]):
+            return "visa_travel_concierge", 0.95
+
+        if any(w in text for w in ["pro service", "gro service", "corporate setup", "company formation", "trade license", "incorporate", "incorporation", "freezone"]):
+            return "pro_gro_services", 0.95
+
         if any(w in text for w in ["status", "where is my", "tracking", "track visa", "application number", "check my visa", "visa status"]):
             return "visa_status_enquiry", 0.95
 
@@ -46,7 +58,7 @@ class IntentService:
         # 2. Fallback to Groq for Zero-Shot Classification
         try:
             prompt = f"""
-            Classify the intent of the following customer message for a visa support centre.
+            Classify the intent of the following customer message for a professional services and visa support centre.
             Choose exactly one intent from this list:
             - visa_status_enquiry: customer tracking status or asking about progress.
             - missing_document: customer asking about missing documents or requirements.
@@ -55,6 +67,9 @@ class IntentService:
             - general_enquiry: standard greetings, hours, simple FAQ questions.
             - document_upload: customer explicitly wanting to upload a file (passport, Emirates ID, visa).
             - human_handoff_request: customer requesting to talk to a human agent.
+            - apostille_services: customer asking about Hague Convention apostille stamps.
+            - visa_travel_concierge: customer needing assistance with travel, business, tourist, or golden visas and concierge services.
+            - pro_gro_services: customer asking about corporate company setups, trade license renewals, freezone operations, or corporate PRO services.
 
             Return a valid JSON object ONLY, with keys "intent" (string) and "confidence" (float between 0.0 and 1.0).
             Do not include any explanation.

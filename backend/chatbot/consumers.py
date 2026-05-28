@@ -14,6 +14,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         self.session_id = self.scope['url_route']['kwargs']['session_id']
         self.room_group_name = f'chat_{self.session_id}'
+        self.current_turn_id = None
 
         # Join room group
         await self.channel_layer.group_add(
@@ -60,10 +61,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         if not user_text:
             return
 
+        # Turn ID tracking
+        turn_id = content.get('turn_id')
+        self.current_turn_id = turn_id
+
         # 1. Emit typing indicator immediately
         await self.send_json({
             "type": "status",
-            "status": "typing"
+            "status": "typing",
+            "turn_id": turn_id
         })
 
         # 2. Setup services and state
@@ -75,7 +81,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         intent = state["intent"]
         confidence = state["confidence"]
         faq_context = state["faq_context"]
-        history_context = state["history_context"]
+        history_messages = state["history_messages"]
         slots_state = state["slots_state"]
         customer_name = state["customer_name"]
         ticket_number = state["ticket_number"]
@@ -83,16 +89,16 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         ticket_created = state["ticket_created"]
 
         # 4. Generate system prompt
-        system_prompt = f"""You are Sofia, a professional AI assistant for the Visa Support Centre. You assist customers with visa applications, document requirements, appointment scheduling, and complaint handling.
+        system_prompt = f"""You are Sofia, a professional AI assistant for BVS Global. You assist customers with document attestation, legalization, background verification, visa concierge, and global relocation.
 
 Rules:
 - Always greet with name if known (known customer name: {customer_name})
 - Ask one clarifying question at a time. Do not dump multiple questions at once.
-- For document issues, list exactly what is missing or required.
+- For document legalization, list the required notary, home ministry, and MOFA attestation milestones.
 - For escalation or ticket creation, acknowledge urgency and explicitly confirm their ticket number: {ticket_number or 'N/A'}
-- Never make promises about visa approval or stamp timeframes.
+- Never make promises about government stamping timeframes or visa approval outcomes.
 - Respond in the same language the customer uses.
-- Keep responses under 100 words unless explicitly listing missing documents.
+- Keep responses under 100 words unless explicitly listing legalization steps.
 
 FAQ Knowledge Guidelines:
 {faq_context}
@@ -103,36 +109,57 @@ Ticket ID if exists: {ticket_id}
 Ticket Number if exists: {ticket_number}
 """
 
+        # Generate response by combining system prompt, conversational history, and latest input
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Here is my latest message: {user_text}\nProvide a response based on the conversation rules."}
+            {"role": "system", "content": system_prompt}
         ]
+        messages.extend(history_messages)
+        messages.append({
+            "role": "user",
+            "content": f"{user_text}\n\n[Instruction: Provide a natural, concise response (under 100 words) as Sofia, adhering to the role guidelines and missing slots.]"
+        })
+
+        # Check interruption again before beginning LLM call
+        if self.current_turn_id != turn_id:
+            logger.info(f"Aborting turn {turn_id} early due to user interruption before LLM.")
+            return
 
         # 5. Stream LLM tokens
         await self.send_json({
             "type": "status",
-            "status": "streaming"
+            "status": "streaming",
+            "turn_id": turn_id
         })
 
         full_bot_response = ""
+        aborted = False
         try:
             for token in groq_client.chat_completion_stream(
                 messages=messages,
                 model="llama-3.1-8b-instant",
                 temperature=0.3
             ):
+                if self.current_turn_id != turn_id:
+                    logger.info(f"Aborting turn {turn_id} mid-stream due to user interruption.")
+                    aborted = True
+                    break
                 full_bot_response += token
                 await self.send_json({
                     "type": "token",
-                    "text": token
+                    "text": token,
+                    "turn_id": turn_id
                 })
         except Exception as e:
             logger.error(f"Error streaming response: {e}")
             full_bot_response = "I apologize, but I encountered a slight connection issue. How can I assist you further?"
             await self.send_json({
                 "type": "token",
-                "text": full_bot_response
+                "text": full_bot_response,
+                "turn_id": turn_id
             })
+
+        if aborted:
+            return
 
         # 6. Save bot response to DB and finalize state (increment attempt counts if needed)
         post_state = await self._post_process_chat_state(
@@ -146,6 +173,11 @@ Ticket Number if exists: {ticket_number}
                 ticket_id = post_state["ticket_id"]
                 ticket_number = post_state["ticket_number"]
 
+        # Final check before emitting final metadata
+        if self.current_turn_id != turn_id:
+            logger.info(f"Aborting turn {turn_id} finalization due to user interruption.")
+            return
+
         # 7. Emit final response metadata
         await self.send_json({
             "type": "metadata",
@@ -154,7 +186,8 @@ Ticket Number if exists: {ticket_number}
             "slots_filled": slots_state.get("slots", {}),
             "ticket_created": ticket_created,
             "ticket_id": ticket_id,
-            "ticket_number": ticket_number
+            "ticket_number": ticket_number,
+            "turn_id": turn_id
         })
 
     # ==========================================
@@ -240,12 +273,14 @@ Ticket Number if exists: {ticket_number}
         faqs = service.faq_service.retrieve_top_faqs(content, top_n=3)
         faq_context = "\n".join([f"Q: {faq['question']}\nA: {faq['answer']}" for faq in faqs])
 
-        # Message History
-        history = Message.objects.filter(conversation=conversation).order_by('timestamp')[:10]
-        history_context = ""
+        # Message History for LLM Turn-Based Context
+        history = Message.objects.filter(conversation=conversation).order_by('timestamp')
+        history_messages = []
         for h in history:
-            role_label = "Customer" if h.sender_role == "customer" else "Sofia"
-            history_context += f"{role_label}: {h.content}\n"
+            if h.id == customer_msg.id:
+                continue
+            role = "user" if h.sender_role == "customer" else "assistant"
+            history_messages.append({"role": role, "content": h.content})
 
         customer_name = conversation.customer.full_name if conversation.customer else "Customer"
 
@@ -253,7 +288,7 @@ Ticket Number if exists: {ticket_number}
             "intent": intent,
             "confidence": confidence,
             "faq_context": faq_context,
-            "history_context": history_context,
+            "history_messages": history_messages,
             "slots_state": slots_state,
             "customer_name": customer_name,
             "ticket_number": ticket_number,

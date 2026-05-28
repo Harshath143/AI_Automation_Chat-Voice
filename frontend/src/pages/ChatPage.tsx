@@ -274,120 +274,131 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)]">
+    <div className={role === 'admin' ? "grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)]" : "max-w-4xl mx-auto w-full h-[calc(100vh-140px)] flex flex-col"}>
       {/* Sidebar - Slot Filling & NLP telemetry */}
-      <div className="lg:col-span-1 glass-panel p-5 rounded-xl flex flex-col justify-between space-y-6">
-        <div className="space-y-6">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-1.5">
-              <KeyRound className="text-primary w-5 h-5" />
-              NLP Telemetry
-            </h2>
-            <p className="text-xs text-gray-400 mt-1">Live semantic analysis by Groq Llama.</p>
+      {role === 'admin' && (
+        <div className="lg:col-span-1 glass-panel p-5 rounded-xl flex flex-col justify-between space-y-6">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <KeyRound className="text-primary w-5 h-5" />
+                NLP Telemetry
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Live semantic analysis by Groq Llama.</p>
+            </div>
+
+            {/* Active Intent */}
+            {activeIntent ? (
+              <div className="space-y-3 bg-background-hover dark:bg-[#1c1218]/50 p-3 rounded-lg border border-background-border dark:border-[#8c3b68]/15">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Detected Intent</span>
+                  <span className="bg-primary/20 text-primary-dark dark:text-primary-light border border-primary/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase tracking-wider">
+                    {activeIntent.replace("_", " ")}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[10px] text-gray-500 font-mono">
+                    <span>Confidence Score</span>
+                    <span>{(activeConfidence * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-background dark:bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary transition-all duration-500" 
+                      style={{ width: `${activeConfidence * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 border border-dashed border-background-border dark:border-gray-800 rounded-lg text-gray-500 dark:text-gray-400 text-xs">
+                Waiting for customer messages...
+              </div>
+            )}
+
+            {/* Slot checklist state */}
+            {Object.keys(activeSlots).length > 0 && (
+              <div className="space-y-3">
+                <span className="text-xs text-gray-500 dark:text-gray-400 block font-semibold">Stateful Slot Checklist</span>
+                <div className="space-y-2">
+                  {Object.entries(activeSlots).map(([slotKey, value]) => (
+                    <div key={slotKey} className="flex items-center justify-between text-xs p-2 bg-background-hover dark:bg-[#1c1218]/65 rounded border border-background-border dark:border-gray-800/40">
+                      <span className="capitalize font-mono text-[11px] text-slate-700 dark:text-gray-300">
+                        {slotKey.replace("_", " ")}
+                      </span>
+                      <span className="flex items-center gap-1.5 font-semibold">
+                        {value ? (
+                          <>
+                            <CheckCircle className="text-success w-4 h-4" />
+                            <span className="text-[11px] text-success truncate max-w-[80px]">{value}</span>
+                          </>
+                        ) : (
+                          <>
+                            <HelpCircle className="text-warning w-4 h-4" />
+                            <span className="text-[11px] text-warning">missing</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Active Intent */}
-          {activeIntent ? (
-            <div className="space-y-3 bg-[#0f172a]/50 p-3 rounded-lg border border-gray-800">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-400">Detected Intent</span>
-                <span className="bg-primary/20 text-primary-light border border-primary/30 text-[10px] px-2 py-0.5 rounded font-mono uppercase tracking-wider">
-                  {activeIntent.replace("_", " ")}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-                  <span>Confidence Score</span>
-                  <span>{(activeConfidence * 100).toFixed(0)}%</span>
+          {/* Action center */}
+          <div className="space-y-3 pt-4 border-t border-background-border dark:border-gray-800">
+            {currentTicket && (
+              <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5 text-xs text-yellow-500 dark:text-yellow-400 font-bold uppercase tracking-wider">
+                  <Ticket className="w-4 h-4" />
+                  Ticket Generated
                 </div>
-                <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary transition-all duration-500" 
-                    style={{ width: `${activeConfidence * 100}%` }}
-                  ></div>
-                </div>
+                <p className="text-[11px] text-slate-700 dark:text-gray-300 font-mono">ID: {currentTicket.number}</p>
+                <button 
+                  onClick={() => setActiveTab('tickets')}
+                  className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 dark:text-yellow-300 text-xs py-1.5 rounded transition font-medium flex items-center justify-center gap-1"
+                >
+                  Go to Workspace
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-            </div>
-          ) : (
-            <div className="text-center py-6 border border-dashed border-gray-800 rounded-lg text-gray-600 text-xs">
-              Waiting for customer messages...
-            </div>
-          )}
+            )}
 
-          {/* Slot checklist state */}
-          {Object.keys(activeSlots).length > 0 && (
-            <div className="space-y-3">
-              <span className="text-xs text-gray-400 block font-semibold">Stateful Slot Checklist</span>
-              <div className="space-y-2">
-                {Object.entries(activeSlots).map(([slotKey, value]) => (
-                  <div key={slotKey} className="flex items-center justify-between text-xs p-2 bg-[#151c2c]/65 rounded border border-gray-800/40">
-                    <span className="capitalize font-mono text-[11px] text-gray-300">
-                      {slotKey.replace("_", " ")}
-                    </span>
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      {value ? (
-                        <>
-                          <CheckCircle className="text-success w-4 h-4" />
-                          <span className="text-[11px] text-success truncate max-w-[80px]">{value}</span>
-                        </>
-                      ) : (
-                        <>
-                          <HelpCircle className="text-warning w-4 h-4" />
-                          <span className="text-[11px] text-warning">missing</span>
-                        </>
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            <button 
+              onClick={handleResetSession}
+              className="w-full bg-background-hover hover:bg-background-border dark:bg-[#1e293b]/50 dark:hover:bg-[#1e293b] border border-background-border dark:border-gray-800 text-xs text-slate-700 dark:text-gray-300 py-2 rounded-lg transition flex items-center justify-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Reset Chat Session
+            </button>
+          </div>
         </div>
-
-        {/* Action center */}
-        <div className="space-y-3 pt-4 border-t border-gray-800">
-          {currentTicket && (
-            <div className="bg-yellow-500/10 border border-yellow-500/20 p-3 rounded-lg space-y-2">
-              <div className="flex items-center gap-1.5 text-xs text-yellow-400 font-bold uppercase tracking-wider">
-                <Ticket className="w-4 h-4" />
-                Ticket Generated
-              </div>
-              <p className="text-[11px] text-gray-300 font-mono">ID: {currentTicket.number}</p>
-              <button 
-                onClick={() => setActiveTab('tickets')}
-                className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 text-xs py-1.5 rounded transition font-medium flex items-center justify-center gap-1"
-              >
-                Go to Workspace
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          <button 
-            onClick={handleResetSession}
-            className="w-full bg-[#1e293b]/50 hover:bg-[#1e293b] border border-gray-800 text-xs text-gray-300 py-2 rounded-lg transition flex items-center justify-center gap-1.5"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Reset Chat Session
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* Main Chat Workspace */}
-      <div className="lg:col-span-3 glass-panel rounded-xl flex flex-col h-full overflow-hidden border border-gray-800/30">
+      <div className={role === 'admin' ? "lg:col-span-3 glass-panel rounded-xl flex flex-col h-full overflow-hidden border border-background-border dark:border-gray-800/30" : "flex-1 glass-panel rounded-xl flex flex-col h-full overflow-hidden border border-background-border dark:border-gray-800/30"}>
         {/* Chat Title bar */}
-        <div className="p-4 bg-[#151c2c] border-b border-gray-800 flex items-center justify-between">
+        <div className="p-4 bg-secondary text-white border-b border-secondary-dark flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 bg-primary/10 rounded-full flex items-center justify-center text-primary relative">
-              <Bot className="w-5 h-5" />
-              <span className="w-2 h-2 bg-green-500 rounded-full absolute bottom-0 right-0 border border-background-card"></span>
+              <Bot className="w-5 h-5 text-primary-light animate-pulse" />
+              <span className="w-2 h-2 bg-green-500 rounded-full absolute bottom-0 right-0 border border-secondary-dark"></span>
             </div>
             <div>
               <span className="text-sm font-bold text-white block">Sofia</span>
-              <span className="text-[11px] text-gray-400">Visa Support Assistant</span>
+              <span className="text-[11px] text-gray-200 dark:text-gray-400">Visa Support Assistant</span>
             </div>
           </div>
-          <span className="text-xs font-mono text-gray-500">Session ID: {sessionId.substring(0, 8)}</span>
+          <div className="flex items-center gap-4">
+            <span className="text-xs font-mono text-gray-200 dark:text-gray-400 hidden sm:inline">Session ID: {sessionId.substring(0, 8)}</span>
+            <button
+              onClick={handleResetSession}
+              className="bg-secondary-dark hover:bg-secondary-light/45 border border-secondary-light/35 text-white hover:text-white text-[11px] px-3 py-1.5 rounded-lg transition-all duration-300 flex items-center gap-1.5 font-bold uppercase tracking-wider shadow-lg"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Clear Session
+            </button>
+          </div>
         </div>
 
         {/* Chat Area bubble logs */}
@@ -400,8 +411,8 @@ export default function ChatPage() {
               {/* Profile Icon */}
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs shrink-0 ${
                 msg.sender === 'customer' 
-                  ? 'bg-primary/20 text-primary-light' 
-                  : 'bg-[#151c2c] border border-gray-800 text-accent'
+                  ? 'bg-primary/20 text-primary' 
+                  : 'bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-[#8c3b68]/30 text-accent'
               }`}>
                 {msg.sender === 'customer' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
               </div>
@@ -410,14 +421,14 @@ export default function ChatPage() {
               <div className={`rounded-xl p-3.5 space-y-2 text-sm leading-relaxed ${
                 msg.sender === 'customer'
                   ? 'bg-primary text-white rounded-tr-none'
-                  : 'bg-[#151c2c] border border-gray-800/80 text-gray-200 rounded-tl-none'
+                  : 'bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-[#8c3b68]/20 text-slate-800 dark:text-gray-200 rounded-tl-none'
               }`}>
                 <p className="whitespace-pre-wrap">{msg.text}</p>
                 
                 {/* Embedded dynamic tickets alert */}
                 {msg.ticket_created && msg.ticket_number && (
-                  <div className="mt-2 bg-[#0b0f19]/60 border border-gray-800 p-2.5 rounded-lg flex items-center justify-between gap-3 text-xs">
-                    <span className="text-gray-400 font-mono">Reference: <strong className="text-white">{msg.ticket_number}</strong></span>
+                  <div className="mt-2 bg-background dark:bg-[#0f090d]/60 border border-background-border dark:border-gray-800 p-2.5 rounded-lg flex items-center justify-between gap-3 text-xs">
+                    <span className="text-slate-500 dark:text-gray-400 font-mono">Reference: <strong className="text-slate-700 dark:text-white">{msg.ticket_number}</strong></span>
                     <button 
                       onClick={() => setActiveTab('tickets')}
                       className="text-primary hover:text-primary-light font-bold flex items-center gap-0.5 shrink-0"
@@ -434,10 +445,10 @@ export default function ChatPage() {
           {/* Loading status states */}
           {status === 'typing' && (
             <div className="flex gap-3 max-w-[80%]">
-              <div className="w-8 h-8 rounded-full bg-[#151c2c] border border-gray-800 text-accent flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-[#8c3b68]/30 text-accent flex items-center justify-center">
                 <Bot className="w-4 h-4 animate-bounce" />
               </div>
-              <div className="bg-[#151c2c] border border-gray-800/80 p-3.5 rounded-xl rounded-tl-none flex items-center gap-1">
+              <div className="bg-background-hover dark:bg-[#1c1218] border border-background-border dark:border-gray-800/80 p-3.5 rounded-xl rounded-tl-none flex items-center gap-1">
                 <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                 <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
                 <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
@@ -449,14 +460,14 @@ export default function ChatPage() {
         </div>
 
         {/* Input box form */}
-        <form onSubmit={handleSendMessage} className="p-4 bg-[#151c2c] border-t border-gray-800 flex gap-2">
+        <form onSubmit={handleSendMessage} className="p-4 bg-background-hover/40 dark:bg-[#1c1218]/40 border-t border-background-border dark:border-gray-800/60 flex gap-2">
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             disabled={status !== 'idle'}
             placeholder={status !== 'idle' ? "Sofia is streaming her response..." : "Type your visa status or rescheduling question here..."}
-            className="flex-1 bg-[#0b0f19] border border-gray-800 rounded-xl px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-primary/50 disabled:opacity-50 transition"
+            className="flex-1 bg-background dark:bg-[#0f090d] border border-background-border dark:border-gray-800 rounded-xl px-4 py-3 text-sm text-slate-800 dark:text-white focus:outline-none focus:border-primary/50 disabled:opacity-50 transition placeholder-slate-400 dark:placeholder-gray-600"
           />
           <button 
             type="submit"

@@ -7,6 +7,9 @@ class Document(models.Model):
         PASSPORT = 'passport', 'Passport'
         VISA = 'visa', 'Visa Copy'
         EMIRATES_ID = 'emirates_id', 'Emirates ID'
+        EDUCATIONAL_DEGREE = 'educational_degree', 'Educational Degree'
+        BIRTH_CERTIFICATE = 'birth_certificate', 'Birth Certificate'
+        COMMERCIAL_CERTIFICATE = 'commercial_certificate', 'Commercial Certificate'
 
     class StatusChoice(models.TextChoices):
         VALID = 'valid', 'Valid'
@@ -15,7 +18,7 @@ class Document(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ticket = models.ForeignKey(Ticket, on_delete=models.SET_NULL, blank=True, null=True, related_name='documents')
-    document_type = models.CharField(max_length=20, choices=DocumentTypeChoice.choices)
+    document_type = models.CharField(max_length=50, choices=DocumentTypeChoice.choices)
     file_path = models.CharField(max_length=500)  # MinIO object name or local media path
     status = models.CharField(max_length=30, choices=StatusChoice.choices, default=StatusChoice.MANUAL_REVIEW)
     extracted_fields = models.JSONField(default=dict, blank=True)

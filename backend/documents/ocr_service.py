@@ -112,6 +112,59 @@ class OCRService:
             If a field is unreadable, assign its value to null.
             Do not include any chat commentary.
             """
+        elif document_type == 'educational_degree':
+            return """
+            You are a senior document legalization and verification officer at BVS Global.
+            Analyze this image of an EDUCATIONAL DEGREE / DIPLOMA and extract key details with high precision.
+            Check for the presence of physical notary seals, Ministry of Foreign Affairs (MOFA) stamps, and Embassy stickers.
+            Return a valid JSON object ONLY, with these keys:
+            - full_name: The certificate holder's full name.
+            - institution_name: The university, college, or school name.
+            - degree_title: The degree, diploma, or certificate title (e.g., Bachelor of Computer Science).
+            - graduation_date: The graduation date or issue date in YYYY-MM-DD format.
+            - has_notary_seal: "yes" or "no" depending on whether a Notary Public stamp/seal is present.
+            - has_mofa_stamp: "yes" or "no" depending on whether a Ministry of Foreign Affairs stamp is present.
+            - has_embassy_sticker: "yes" or "no" depending on whether an Embassy legalization sticker is present.
+            - ocr_confidence: float between 0.0 and 1.0.
+
+            If a field is unreadable, assign its value to null.
+            Do not include any chat commentary.
+            """
+        elif document_type == 'birth_certificate':
+            return """
+            You are a senior document legalization and verification officer at BVS Global.
+            Analyze this image of a BIRTH CERTIFICATE and extract key details with high precision.
+            Check for physical notary seals, ministry stamps, and embassy stickers.
+            Return a valid JSON object ONLY, with these keys:
+            - full_name: The child's or individual's full name.
+            - date_of_birth: The date of birth in YYYY-MM-DD format.
+            - place_of_birth: The city, state, and country of birth.
+            - parent_names: Father and mother full names (concatenated or comma separated).
+            - has_notary_seal: "yes" or "no".
+            - has_mofa_stamp: "yes" or "no".
+            - has_embassy_sticker: "yes" or "no".
+            - ocr_confidence: float between 0.0 and 1.0.
+
+            If a field is unreadable, assign its value to null.
+            Do not include any chat commentary.
+            """
+        elif document_type == 'commercial_certificate':
+            return """
+            You are a senior corporate services officer at BVS Global.
+            Analyze this image of a COMMERCIAL REGISTER / TRADE LICENSE and extract details.
+            Return a valid JSON object ONLY, with these keys:
+            - company_name: The registered company name.
+            - registration_number: The commercial register / license number.
+            - license_type: The license type (e.g., LLC, Sole Establishment, Freezone).
+            - expiry_date: The license expiry date in YYYY-MM-DD format.
+            - has_notary_seal: "yes" or "no".
+            - has_mofa_stamp: "yes" or "no".
+            - has_embassy_sticker: "yes" or "no".
+            - ocr_confidence: float between 0.0 and 1.0.
+
+            If a field is unreadable, assign its value to null.
+            Do not include any chat commentary.
+            """
         else: # Visa Copy
             return """
             You are an expert immigration officer and OCR engine.

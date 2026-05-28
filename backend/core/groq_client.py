@@ -184,6 +184,39 @@ class GroqClient:
                 "issuing_authority": "ICA",
                 "ocr_confidence": 0.91
             })
+        elif document_type == 'educational_degree':
+            return json.dumps({
+                "full_name": "Alexander Smith",
+                "institution_name": "University of Oxford",
+                "degree_title": "Master of Computer Science",
+                "graduation_date": "2010-06-18",
+                "has_notary_seal": "yes",
+                "has_mofa_stamp": "yes",
+                "has_embassy_sticker": "yes",
+                "ocr_confidence": 0.94
+            })
+        elif document_type == 'birth_certificate':
+            return json.dumps({
+                "full_name": "Baby John Smith",
+                "date_of_birth": "2021-02-15",
+                "place_of_birth": "London, UK",
+                "parent_names": "Alexander Smith, Mary Smith",
+                "has_notary_seal": "yes",
+                "has_mofa_stamp": "yes",
+                "has_embassy_sticker": "no",
+                "ocr_confidence": 0.88
+            })
+        elif document_type == 'commercial_certificate':
+            return json.dumps({
+                "company_name": "BVS TECH SOLUTIONS LLC",
+                "registration_number": "CR-992384A",
+                "license_type": "Limited Liability Company",
+                "expiry_date": "2027-11-20",
+                "has_notary_seal": "yes",
+                "has_mofa_stamp": "yes",
+                "has_embassy_sticker": "yes",
+                "ocr_confidence": 0.95
+            })
         else: # Visa copy
             return json.dumps({
                 "full_name": "JOHN DOE",

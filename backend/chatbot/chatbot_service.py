@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 SLOT_SCHEMAS = {
     "visa_status_enquiry": ["application_number", "full_name", "dob"],
     "appointment_reschedule": ["current_date", "preferred_date", "reason"],
-    "complaint_escalation": ["issue_description", "urgency_level"]
+    "complaint_escalation": ["issue_description", "urgency_level"],
+    "certificate_attestation": ["full_name", "document_type", "origin_country", "destination_country"],
+    "background_verification": ["candidate_name", "verification_type", "institution_name", "consent_received"],
+    "apostille_services": ["full_name", "document_type", "origin_country"],
+    "visa_travel_concierge": ["full_name", "visa_type", "destination_country", "travel_date"],
+    "pro_gro_services": ["company_name", "service_needed", "jurisdiction", "contact_person"]
 }
 
 class ChatbotService:
@@ -113,12 +118,14 @@ class ChatbotService:
         faqs = self.faq_service.retrieve_top_faqs(content, top_n=3)
         faq_context = "\n".join([f"Q: {faq['question']}\nA: {faq['answer']}" for faq in faqs])
 
-        # 7. Assemble conversation transcript history (last 10 turns)
+        # 7. Retrieve historical messages for perfect context
         history = Message.objects.filter(conversation=conversation).order_by('timestamp')
-        history_context = ""
+        history_messages = []
         for h in history:
-            role_label = "Customer" if h.sender_role == "customer" else "Sofia"
-            history_context += f"{role_label}: {h.content}\n"
+            if h.id == customer_msg.id:
+                continue
+            role = "user" if h.sender_role == "customer" else "assistant"
+            history_messages.append({"role": role, "content": h.content})
 
         # 8. Render professional response prompt
         customer_name = conversation.customer.full_name if conversation.customer else "Customer"
@@ -143,11 +150,15 @@ Ticket ID if exists: {ticket_id}
 Ticket Number if exists: {ticket_number}
 """
 
-        # Generate response
+        # Generate response by combining system prompt, conversational history, and latest input
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Here is my latest message: {content}\nProvide a response based on the conversation rules."}
+            {"role": "system", "content": system_prompt}
         ]
+        messages.extend(history_messages)
+        messages.append({
+            "role": "user",
+            "content": f"{content}\n\n[Instruction: Provide a natural, concise response (under 100 words) as Sofia, adhering to the role guidelines and missing slots.]"
+        })
 
         # Use fast text engine
         bot_response = self.groq_client.chat_completion(
@@ -187,19 +198,26 @@ Ticket Number if exists: {ticket_number}
         """
         active_slots = slots_state.get("slots", {})
         
-        system_instruction = """You are a highly precise slot-extraction assistant for a Visa Support Centre. Your job is to analyze a customer message and extract slot field values from it, returning a clean JSON object.
+        system_instruction = """You are a highly precise slot-extraction assistant for BVS Global. Your job is to analyze a customer message and extract slot field values from it, returning a clean JSON object.
 
 Rules for Extraction:
 1. "dob" (Date of Birth): Convert ANY date format (e.g. "07/12/2000", "July 7 2000", "12 July 2000", "12/07/2000") to standard ISO 'YYYY-MM-DD' format.
 2. "full_name" (Full Name): Extract only a personal name. Do NOT put dates, numbers, or codes into this slot.
 3. "application_number": Extract alphanumeric visa reference codes (e.g. "DXB-2026-99214A", "REF-202605-IMM").
-4. "current_date" (Current Appointment Date): Extract the existing/current appointment date from phrases like "current date", "my appointment is on", "from", "existing date". Convert to ISO 'YYYY-MM-DD' if possible, or keep as provided.
-5. "preferred_date" (Preferred New Date): Extract the desired new date from phrases like "preferred date", "new date", "reschedule to", "instead of", "change to". Convert to ISO 'YYYY-MM-DD' if possible, or keep as provided.
-6. "reason" (Reason): Extract the reason/cause from phrases like "reason is", "because", "due to", "as", or any explanatory phrase.
+4. "current_date" (Current Appointment Date): Extract the existing/current appointment date. Convert to ISO 'YYYY-MM-DD' if possible.
+5. "preferred_date" (Preferred New Date): Extract the desired new date. Convert to ISO 'YYYY-MM-DD' if possible.
+6. "reason" (Reason): Extract the reason/cause.
 7. "issue_description": Extract a full description of the customer's complaint or issue.
 8. "urgency_level": Extract urgency indicators like "high", "critical", "extremely urgent", "standard", etc.
-9. DO NOT overwrite an already-filled slot unless the customer explicitly changes it.
-10. If a value is not found in the message, keep the existing value exactly as-is (do not set to null).
+9. "document_type" (Attestation Document Type): Extract the target document category (e.g. "educational_degree", "birth_certificate", "marriage_certificate", "power_of_attorney").
+10. "origin_country": The country where the certificate was issued (e.g. "United Kingdom", "India").
+11. "destination_country": The target country where the legalized document is required (e.g. "United Arab Emirates", "Saudi Arabia").
+12. "candidate_name": Name of the candidate being verified.
+13. "verification_type": The type of background check (e.g. "employment_check", "education_check", "criminal_check").
+14. "institution_name": Name of the university or company being checked.
+15. "consent_received": "yes" or "no" if the user has given consent for background verification.
+16. DO NOT overwrite an already-filled slot unless the customer explicitly changes it.
+17. If a value is not found in the message, keep the existing value exactly as-is (do not set to null).
 
 Respond with a valid JSON object ONLY. No explanations, no markdown. Just valid JSON."""
 
@@ -252,6 +270,11 @@ Extract any missing or updated slot values and return the complete JSON with all
             "missing_document": "Document Verification Team",
             "appointment_reschedule": "Appointment Management Team",
             "complaint_escalation": "Customer Relations",
+            "certificate_attestation": "Legalization & Attestation Division",
+            "background_verification": "Background Auditing Team",
+            "apostille_services": "Apostille Operations Division",
+            "visa_travel_concierge": "Visa Concierge Desk",
+            "pro_gro_services": "Corporate Services Team",
             "general_enquiry": "General Support"
         }
         department = dept_mapping.get(intent, "General Support")
@@ -260,8 +283,10 @@ Extract any missing or updated slot values and return the complete JSON with all
         priority = Ticket.PriorityChoice.MEDIUM
         if intent == "complaint_escalation":
             priority = Ticket.PriorityChoice.CRITICAL
-        elif intent == "human_handoff_request":
+        elif intent in ["human_handoff_request", "certificate_attestation", "apostille_services", "pro_gro_services"]:
             priority = Ticket.PriorityChoice.HIGH
+        elif intent == "background_verification":
+            priority = Ticket.PriorityChoice.MEDIUM
 
         # 4. Generate Ticket
         ticket = Ticket.objects.create(

@@ -72,16 +72,16 @@ export default function TicketPage() {
       <div className="lg:col-span-1 glass-panel rounded-xl flex flex-col overflow-hidden border border-gray-800/30">
         
         {/* Search Header */}
-        <form onSubmit={handleSearch} className="p-4 border-b border-gray-800 bg-[#151c2c] flex gap-2">
+        <form onSubmit={handleSearch} className="p-4 border-b border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-[#151c2c] flex gap-2">
           <div className="relative flex-1">
             <input 
               type="text" 
               placeholder="Search reference, name..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0b0f19] border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-primary/50"
+              className="w-full bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-gray-800 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-800 dark:text-gray-200 focus:outline-none focus:border-primary/50 placeholder-slate-400 dark:placeholder-gray-500"
             />
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400 dark:text-gray-500" />
           </div>
           <button 
             type="submit" 
@@ -92,7 +92,7 @@ export default function TicketPage() {
         </form>
 
         {/* Scrollable list */}
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-800/60 p-2 space-y-1.5">
+        <div className="flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-gray-800/60 p-2 space-y-1.5">
           {loading ? (
             <div className="text-center py-12 text-gray-500 text-sm">
               <RefreshCcw className="w-5 h-5 animate-spin mx-auto mb-2 text-primary" />
@@ -110,7 +110,7 @@ export default function TicketPage() {
                 className={`p-3.5 rounded-lg cursor-pointer transition duration-150 flex flex-col justify-between space-y-3 border ${
                   activeTicket?.id === t.id 
                     ? 'bg-primary/10 border-primary/40' 
-                    : 'bg-[#151c2c]/40 border-gray-800/60 hover:bg-[#151c2c]/80'
+                    : 'bg-white dark:bg-[#151c2c]/40 border-slate-200 dark:border-gray-800/60 hover:bg-slate-50 dark:hover:bg-[#151c2c]/80'
                 }`}
               >
                 <div className="flex justify-between items-center">
@@ -120,11 +120,11 @@ export default function TicketPage() {
                   </span>
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white truncate">{t.customer.full_name}</h3>
-                  <p className="text-[11px] text-gray-400 capitalize mt-1">{t.intent.replace("_", " ")}</p>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-white truncate">{t.customer.full_name}</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-gray-400 capitalize mt-1">{t.intent.replace("_", " ")}</p>
                 </div>
-                <div className="flex justify-between items-center pt-2 border-t border-gray-800/40">
-                  <span className="text-[10px] text-gray-500 font-mono">
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200 dark:border-gray-800/40">
+                  <span className="text-[10px] text-slate-400 dark:text-gray-500 font-mono">
                     {new Date(t.created_at).toLocaleDateString()}
                   </span>
                   <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-semibold ${getStatusBadgeClass(t.status)}`}>
@@ -143,10 +143,10 @@ export default function TicketPage() {
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             
             {/* Header Title block */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between pb-5 border-b border-gray-800 space-y-3 md:space-y-0">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between pb-5 border-b border-slate-200 dark:border-gray-800 space-y-3 md:space-y-0">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xl font-mono font-black text-white">{activeTicket.ticket_number}</span>
+                  <span className="text-xl font-mono font-black text-slate-800 dark:text-white">{activeTicket.ticket_number}</span>
                   <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${getPriorityBadgeClass(activeTicket.priority)}`}>
                     {activeTicket.priority}
                   </span>
@@ -154,15 +154,15 @@ export default function TicketPage() {
                     {activeTicket.status.replace("_", " ")}
                   </span>
                 </div>
-                <p className="text-gray-400 text-xs mt-1 capitalize">Intent Type: {activeTicket.intent.replace("_", " ")}</p>
+                <p className="text-slate-500 dark:text-gray-400 text-xs mt-1 capitalize font-medium">Intent Type: {activeTicket.intent.replace("_", " ")}</p>
               </div>
               
               {/* Dynamic SLA Countdown clocks */}
-              <div className="bg-[#1a2333] border border-gray-800/80 px-4 py-2 rounded-xl flex items-center gap-3">
+              <div className="bg-slate-50 dark:bg-[#1a2333] border border-slate-200 dark:border-gray-800/80 px-4 py-2 rounded-xl flex items-center gap-3 shadow-sm">
                 <Clock className="w-5 h-5 text-warning animate-pulse" />
                 <div>
-                  <span className="text-[10px] text-gray-500 uppercase tracking-wider block">SLA Target Limit</span>
-                  <span className="text-xs font-mono font-bold text-white">
+                  <span className="text-[10px] text-slate-400 dark:text-gray-500 uppercase tracking-wider block font-bold">SLA Target Limit</span>
+                  <span className="text-xs font-mono font-bold text-slate-800 dark:text-white">
                     {new Date(activeTicket.sla_deadline).toLocaleString()}
                   </span>
                 </div>
@@ -170,46 +170,46 @@ export default function TicketPage() {
             </div>
 
             {/* AI summary block */}
-            <div className="bg-[#3b82f6]/5 border border-primary/20 p-4.5 rounded-xl space-y-2">
+            <div className="bg-[#3b82f6]/5 border border-primary/20 p-5 rounded-xl space-y-2">
               <span className="text-xs font-bold text-primary flex items-center gap-1.5 uppercase tracking-wider">
-                <ShieldAlert className="w-4.5 h-4.5" />
+                <ShieldAlert className="w-5 h-5" />
                 AI-Generated Ticket Summary
               </span>
-              <p className="text-sm text-gray-200 leading-relaxed italic">
+              <p className="text-sm text-slate-700 dark:text-gray-200 leading-relaxed italic">
                 "{activeTicket.summary || "Generating summary in background..."}"
               </p>
             </div>
 
             {/* Customer Dossier grid */}
             <div className="space-y-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Customer Dossier</h3>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Customer Dossier</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-[#151c2c]/40 border border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
+                <div className="bg-slate-50 dark:bg-[#151c2c]/40 border border-slate-200 dark:border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
                   <UserCheck className="w-5 h-5 text-primary shrink-0" />
                   <div>
-                    <span className="text-[10px] text-gray-500 block">Applicant Name</span>
-                    <span className="font-semibold text-white">{activeTicket.customer.full_name}</span>
+                    <span className="text-[10px] text-slate-500 dark:text-gray-400 block font-bold">Applicant Name</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{activeTicket.customer.full_name}</span>
                   </div>
                 </div>
-                <div className="bg-[#151c2c]/40 border border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
+                <div className="bg-slate-50 dark:bg-[#151c2c]/40 border border-slate-200 dark:border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
                   <Mail className="w-5 h-5 text-accent shrink-0" />
                   <div>
-                    <span className="text-[10px] text-gray-500 block">Email Address</span>
-                    <span className="font-semibold text-white">{activeTicket.customer.email}</span>
+                    <span className="text-[10px] text-slate-500 dark:text-gray-400 block font-bold">Email Address</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{activeTicket.customer.email}</span>
                   </div>
                 </div>
-                <div className="bg-[#151c2c]/40 border border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
+                <div className="bg-slate-50 dark:bg-[#151c2c]/40 border border-slate-200 dark:border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
                   <Phone className="w-5 h-5 text-success shrink-0" />
                   <div>
-                    <span className="text-[10px] text-gray-500 block">Phone Details</span>
-                    <span className="font-semibold text-white">{activeTicket.customer.phone || 'N/A'}</span>
+                    <span className="text-[10px] text-slate-500 dark:text-gray-400 block font-bold">Phone Details</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{activeTicket.customer.phone || 'N/A'}</span>
                   </div>
                 </div>
-                <div className="bg-[#151c2c]/40 border border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
+                <div className="bg-slate-50 dark:bg-[#151c2c]/40 border border-slate-200 dark:border-gray-800/40 p-3.5 rounded-lg flex items-center gap-3 text-sm">
                   <Calendar className="w-5 h-5 text-warning shrink-0" />
                   <div>
-                    <span className="text-[10px] text-gray-500 block">Date of Birth</span>
-                    <span className="font-semibold text-white">{activeTicket.customer.dob || 'N/A'}</span>
+                    <span className="text-[10px] text-slate-500 dark:text-gray-400 block font-bold">Date of Birth</span>
+                    <span className="font-semibold text-slate-800 dark:text-white">{activeTicket.customer.dob || 'N/A'}</span>
                   </div>
                 </div>
               </div>
@@ -217,15 +217,15 @@ export default function TicketPage() {
 
             {/* Action control Deck */}
             <div className="space-y-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Triage & routing Controls</h3>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Triage & routing Controls</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* State shift */}
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase tracking-wider block">Transition Status</label>
+                  <label className="text-[10px] text-slate-500 dark:text-gray-400 uppercase tracking-wider block font-bold">Transition Status</label>
                   <select 
                     value={activeTicket.status}
                     onChange={(e) => handleStatusChange(e.target.value)}
-                    className="w-full bg-[#0b0f19] border border-gray-800 rounded-lg p-2.5 text-xs text-gray-200 focus:outline-none"
+                    className="w-full bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-gray-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-gray-200 focus:outline-none focus:border-primary/50 transition-colors duration-200"
                   >
                     <option value="open">Open</option>
                     <option value="in_progress">In Progress</option>
@@ -236,11 +236,11 @@ export default function TicketPage() {
 
                 {/* Agent assign */}
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase tracking-wider block">Assign Agent</label>
+                  <label className="text-[10px] text-slate-500 dark:text-gray-400 uppercase tracking-wider block font-bold">Assign Agent</label>
                   <select 
                     value={activeTicket.assigned_agent || ''}
                     onChange={(e) => handleAgentChange(e.target.value)}
-                    className="w-full bg-[#0b0f19] border border-gray-800 rounded-lg p-2.5 text-xs text-gray-200 focus:outline-none"
+                    className="w-full bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-gray-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-gray-200 focus:outline-none focus:border-primary/50 transition-colors duration-200"
                   >
                     <option value="">Unassigned</option>
                     <option value="Emma Watson">Emma Watson (Visa Specialist)</option>
@@ -252,26 +252,26 @@ export default function TicketPage() {
             </div>
 
             {/* Manual Escalation Box */}
-            <div className="pt-4 border-t border-gray-800">
+            <div className="pt-4 border-t border-slate-200 dark:border-gray-800">
               {!showEscalateBox ? (
                 <button 
                   onClick={() => setShowEscalateBox(true)}
-                  className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs px-4 py-2.5 rounded-lg font-semibold transition"
+                  className="bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 text-xs px-4 py-2.5 rounded-lg font-semibold transition"
                 >
                   Manually Escalate to Manager
                 </button>
               ) : (
                 <div className="bg-red-500/5 border border-red-500/20 p-4 rounded-lg space-y-3">
-                  <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <h4 className="text-xs font-bold text-red-500 dark:text-red-400 uppercase tracking-wider flex items-center gap-1.5">
                     <AlertCircle className="w-4 h-4" />
                     Manager Escalation Request
                   </h4>
-                  <p className="text-[11px] text-gray-400">Provide details. This will automatically force critical severity and alert supervisor SMTP pipelines.</p>
+                  <p className="text-[11px] text-slate-500 dark:text-gray-400">Provide details. This will automatically force critical severity and alert supervisor SMTP pipelines.</p>
                   <textarea 
                     placeholder="Provide escalation reason (e.g. Visa expiry imminent, client is aggressive)..."
                     value={escalationReason}
                     onChange={(e) => setEscalationReason(e.target.value)}
-                    className="w-full bg-[#0b0f19] border border-gray-800 rounded-lg p-3 text-xs text-gray-200 focus:outline-none h-20"
+                    className="w-full bg-white dark:bg-[#0b0f19] border border-slate-200 dark:border-gray-800 rounded-lg p-3 text-xs text-slate-800 dark:text-gray-200 focus:outline-none focus:border-red-500/50 h-20 placeholder-slate-400 dark:placeholder-gray-500"
                   />
                   <div className="flex gap-2">
                     <button 
@@ -283,7 +283,7 @@ export default function TicketPage() {
                     </button>
                     <button 
                       onClick={() => { setShowEscalateBox(false); setEscalationReason(''); }}
-                      className="bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs px-3.5 py-1.5 rounded transition"
+                      className="bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 text-xs px-3.5 py-1.5 rounded transition"
                     >
                       Cancel
                     </button>
